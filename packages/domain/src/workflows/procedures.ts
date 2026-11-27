@@ -39,11 +39,7 @@ import { toolIdsOf } from "./tool-steps.ts";
 const owner = base.use(member);
 
 /** A member procedure's caller, as the run checks (`readableRun`) take a reader: its person is the actor. */
-const asReader = (context: Pick<InitialContext, "db" | "job"> & { actorId: string }): RunReader => ({
-  db: context.db,
-  job: context.job,
-  ownerId: context.actorId,
-});
+const asReader = (context: Pick<InitialContext, "db" | "job"> & { actorId: string }): RunReader => ({ db: context.db, job: context.job, ownerId: context.actorId });
 const reader = base.use(signedIn);
 
 const Name = z.string().trim().min(1).max(100);
@@ -57,7 +53,9 @@ function toWorkflow(w: WorkflowRow, def: WorkflowDef) {
 /** JSON with sorted keys: jsonb doesn't keep key order, so compare defs through this. */
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_, v: unknown) =>
-    v && typeof v === "object" && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1))) : v,
+    v && typeof v === "object" && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : v,
   );
 }
 
@@ -79,9 +77,7 @@ async function find(context: { db: Db; access: { workspaceId: string } }, id: st
   const [row] = await context.db
     .select()
     .from(workflowsTable)
-    .where(
-      and(eq(workflowsTable.id, id), eq(workflowsTable.workspaceId, context.access.workspaceId), archived ? undefined : isNull(workflowsTable.archivedAt)),
-    );
+    .where(and(eq(workflowsTable.id, id), eq(workflowsTable.workspaceId, context.access.workspaceId), archived ? undefined : isNull(workflowsTable.archivedAt)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
   return row;
 }
@@ -122,12 +118,18 @@ export async function agentInUse(db: Db | Tx, workspaceId: string, agentId: stri
   const current = await db
     .select({ def: workflowVersions.def })
     .from(workflowsTable)
-    .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflowsTable.id), eq(workflowVersions.version, workflowsTable.currentVersion)))
+    .innerJoin(
+      workflowVersions,
+      and(eq(workflowVersions.workflowId, workflowsTable.id), eq(workflowVersions.version, workflowsTable.currentVersion)),
+    )
     .where(and(eq(workflowsTable.workspaceId, workspaceId), isNull(workflowsTable.archivedAt)));
   const running = await db
     .select({ def: workflowVersions.def })
     .from(runsTable)
-    .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, runsTable.workflowId), eq(workflowVersions.version, runsTable.version)))
+    .innerJoin(
+      workflowVersions,
+      and(eq(workflowVersions.workflowId, runsTable.workflowId), eq(workflowVersions.version, runsTable.version)),
+    )
     .where(and(eq(runsTable.workspaceId, workspaceId), inArray(runsTable.status, ["running", "waiting"])));
   return [...current, ...running].some(({ def }) => agentIdsOf(def).includes(agentId));
 }
@@ -136,10 +138,7 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
   const id = newId("wf");
   const def = defaultWorkflowDef(newId("node"));
   const row = await context.db.transaction(async (tx) => {
-    const [row] = await tx
-      .insert(workflowsTable)
-      .values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name: input.name, currentVersion: 1 })
-      .returning();
+    const [row] = await tx.insert(workflowsTable).values({ id, ownerId: context.actorId, workspaceId: context.access.workspaceId, name: input.name, currentVersion: 1 }).returning();
     await tx.insert(workflowVersions).values({ workflowId: id, version: 1, ownerId: context.actorId, def });
     return row!;
   });
@@ -224,10 +223,7 @@ const setScheduleEnabled = owner.input(z.object({ id: z.string(), enabled: z.boo
     if (!s) throw new ORPCError("NOT_FOUND", message("workflows.noSchedule"));
     if (s.enabled === input.enabled) return;
     const resumed = input.enabled ? { nextFireAt: nextFireAfter(s.cron, s.timezone, now), lastCheckedAt: now } : {};
-    await tx
-      .update(schedules)
-      .set({ enabled: input.enabled, ...resumed })
-      .where(eq(schedules.workflowId, input.id));
+    await tx.update(schedules).set({ enabled: input.enabled, ...resumed }).where(eq(schedules.workflowId, input.id));
   });
 });
 
@@ -277,9 +273,7 @@ export const workflows = { create, update, delete: remove, list, get, setSchedul
 
 /** Changing a run still requires the legacy owner as well as access to its workspace. */
 async function requireOwnedRun(context: RunReader, runId: string) {
-  const [row] = await context.db
-    .select({ id: runsTable.id })
-    .from(runsTable)
+  const [row] = await context.db.select({ id: runsTable.id }).from(runsTable)
     .where(and(eq(runsTable.id, runId), eq(runsTable.ownerId, context.ownerId), readableRun(context)));
   if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
 }
@@ -293,10 +287,7 @@ export async function runQuestion(db: Db, ownerId: string, q: ReturnType<typeof 
 }
 
 async function readRun(context: RunReader, runId: string) {
-  const [run] = await context.db
-    .select()
-    .from(runsTable)
-    .where(and(eq(runsTable.id, runId), readableRun(context)));
+  const [run] = await context.db.select().from(runsTable).where(and(eq(runsTable.id, runId), readableRun(context)));
   if (!run) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
   return run;
 }
@@ -308,13 +299,7 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     db.select().from(stepRuns).where(eq(stepRuns.runId, runId)),
     db.select().from(messages).where(eq(messages.runId, runId)).orderBy(asc(messages.position)),
     db.select().from(questions).where(eq(questions.runId, runId)).orderBy(asc(questions.createdAt)),
-    ownerId !== run.ownerId
-      ? []
-      : db
-          .select()
-          .from(chatQueue)
-          .where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"])))
-          .orderBy(asc(chatQueue.position)),
+    ownerId !== run.ownerId ? [] : db.select().from(chatQueue).where(and(eq(chatQueue.runId, runId), inArray(chatQueue.state, ["pending", "failed"]))).orderBy(asc(chatQueue.position)),
   ]);
   // A workflow run keeps no def: its version's says whether its chat can continue.
   const def = run.def ?? (run.workflowId ? await defOf(db, run.workflowId, run.version) : null);
@@ -324,12 +309,10 @@ async function snapshot({ db, ownerId }: RunReader, run: typeof runsTable.$infer
     messages: transcript.map(messageView),
     queue: queued.map(queuedView),
     // Each with its step's state (`recovery`), and, for the reader, read now, whether it is theirs to consent to.
-    questions: await Promise.all(
-      asked.map((q) => {
-        const step = steps.find((s) => s.id === q.stepRunId);
-        return runQuestion(db, ownerId, { ...questionView(q, step), ...(awaitsConsentOf(q, step, ownerId) ? { yoursToConsent: true as const } : {}) });
-      }),
-    ),
+    questions: await Promise.all(asked.map((q) => {
+      const step = steps.find((s) => s.id === q.stepRunId);
+      return runQuestion(db, ownerId, { ...questionView(q, step), ...(awaitsConsentOf(q, step, ownerId) ? { yoursToConsent: true as const } : {}) });
+    })),
   };
 }
 
@@ -391,15 +374,7 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
 });
 
 const sendChat = owner
-  .input(
-    z.object({
-      runId: z.string(),
-      text: StorableText(100_000).trim().min(1),
-      continueChat: z.boolean().optional(),
-      skillId: z.string().max(64).optional(),
-      attachmentIds: z.array(z.string().max(64)).max(MAX_RESULT_FILES).optional(),
-    }),
-  )
+  .input(z.object({ runId: z.string(), text: StorableText(100_000).trim().min(1), continueChat: z.boolean().optional(), skillId: z.string().max(64).optional(), attachmentIds: z.array(z.string().max(64)).max(MAX_RESULT_FILES).optional() }))
   .handler(async ({ input, context }) => {
     await requireOwnedRun(asReader(context), input.runId);
     if (context.job && input.skillId) throw new ORPCError("FORBIDDEN", message("workflows.ownerSkill"));
@@ -416,13 +391,11 @@ const steerQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string
 });
 
 /** The owner changes a message queued while the chat was busy, while it is still pending. */
-const editQueued = owner
-  .input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) }))
-  .handler(async ({ input, context }) => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-    await requireOwnedRun(asReader(context), input.runId);
-    await context.engine.editQueued(input.runId, input.queuedId, input.text).catch(engineError);
-  });
+const editQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) })).handler(async ({ input, context }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+  await requireOwnedRun(asReader(context), input.runId);
+  await context.engine.editQueued(input.runId, input.queuedId, input.text).catch(engineError);
+});
 
 /** The owner takes back a queued message not sent yet (pending, or failed). */
 const removeQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
@@ -448,36 +421,26 @@ const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFo
 /** `read` in the run's workspace, once the caller may open it there (`inPlacedScope`). */
 const inRunPlace = async <T>(context: RunReader & Parameters<typeof inPlacedScope>[0], runId: string, read: () => Promise<T>) =>
   inPlacedScope(context, await placeOfRun(context.db, runId), runNotFound, read);
-const access = reader.input(runInput).handler(({ input, context }) =>
-  inRunPlace(context, input.runId, async () => {
-    const [row] = await context.db
-      .select({ ownerId: runsTable.ownerId })
-      .from(runsTable)
-      .where(and(eq(runsTable.id, input.runId), readableRun(context)));
-    if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-    // Its own person manages the run (stop, consults, its Audit), as `stop` checks.
-    return { canManage: row.ownerId === context.ownerId };
-  }),
-);
+const access = reader.input(runInput).handler(({ input, context }) => inRunPlace(context, input.runId, async () => {
+  const [row] = await context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
+    .where(and(eq(runsTable.id, input.runId), readableRun(context)));
+  if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+  // Its own person manages the run (stop, consults, its Audit), as `stop` checks.
+  return { canManage: row.ownerId === context.ownerId };
+}));
 
-const getRun = reader
-  .input(runInput)
-  .handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));
+const getRun = reader.input(runInput).handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));
 
 /** The run as it is, then every change to it while the client listens. */
 const stream = reader.input(runInput).handler(async function* ({ input, context, signal }) {
-  const allowed = () =>
-    context.db
-      .select({ ownerId: runsTable.ownerId })
-      .from(runsTable)
-      .where(and(eq(runsTable.id, input.runId), readableRun(context)));
+  const allowed = () => context.db.select({ ownerId: runsTable.ownerId }).from(runsTable)
+    .where(and(eq(runsTable.id, input.runId), readableRun(context)));
   // The run's workspace, under SYSTEM; then the person's membership there, live, before every read.
   // Its organization, kept from the snapshot's admission for the idle re-checks: a run never moves.
   let organizationId = "";
   const admit = async () => {
     const placed = await placeOfRun(context.db, input.runId);
-    if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)))
-      throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
+    if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
     organizationId = placed.organizationId;
     return placed;
   };
@@ -524,13 +487,8 @@ const stream = reader.input(runInput).handler(async function* ({ input, context,
           return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
         });
         if (out) yield out;
-      } else
-        await untilRefused(
-          context,
-          () => organizationId,
-          () => scoped(async () => {}),
-          new Promise<void>((resolve) => (wake = resolve)),
-        );
+      }
+      else await untilRefused(context, () => organizationId, () => scoped(async () => {}), new Promise<void>((resolve) => (wake = resolve)));
     }
   } finally {
     unsubscribe();
@@ -551,78 +509,59 @@ export const TITLE_LENGTH = 80;
  * conversation's first message, null before it has one. `waitingOn` and `consultedBy`: the agent a
  * Job's pending consult waits on, and the agent that consulted it (`jobs/consults.ts`).
  */
-const listRuns = owner
-  .input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional(), kind: z.literal("chat").optional() }))
-  .handler(async ({ input, context }) => {
-    if (input.triggerId) {
-      const [trigger] = await context.db
-        .select({ id: triggers.id })
-        .from(triggers)
-        .innerJoin(agents, eq(agents.id, triggers.agentId))
-        .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, context.access.workspaceId)));
-      if (!trigger) throw new ORPCError("NOT_FOUND", message("workflows.triggerNotFound"));
-    }
-    if (input.workflowId) await find(context, input.workflowId, true);
-    if (input.agentId) {
-      const [agent] = await context.db
-        .select({ id: agents.id })
-        .from(agents)
-        .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId)));
-      if (!agent) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
-    }
-    const rows = await context.db
-      .select()
-      .from(runsTable)
-      .where(
-        and(
-          eq(runsTable.ownerId, context.actorId),
-          readableRun(asReader(context)),
-          input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
-          input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
-          input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
-          input.kind ? sql`${runsTable.def} -> 'trigger' -> 'field' ->> 'type' = ${input.kind}` : undefined,
-        ),
-      )
-      .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
-      .limit(50);
-    // The runs with a step waiting for a slot of its harness (`engine/slots.ts`).
-    const ids = rows.map((r) => r.id);
-    const queued = ids.length
-      ? new Set(
-          (
-            await context.db
-              .selectDistinct({ runId: stepRuns.runId })
-              .from(stepRuns)
-              .where(and(inArray(stepRuns.runId, ids), isNotNull(stepRuns.queuedAt)))
-          ).map((r) => r.runId),
-        )
-      : new Set<string>();
-    // Each run's first message of the owner, cut in the database: a message can be long.
-    const firsts = ids.length
-      ? await context.db
-          .selectDistinctOn([messages.runId], { runId: messages.runId, text: sql<string>`left(${messages.text}, ${TITLE_LENGTH})` })
-          .from(messages)
-          .where(and(inArray(messages.runId, ids), eq(messages.role, "user")))
-          .orderBy(messages.runId, asc(messages.position))
-      : [];
-    const titles = new Map(firsts.map((m) => [m.runId, m.text.replace(/\s+/g, " ").trim() || null]));
-    const marks = await consultMarks(context.db, rows);
-    // Each workflow run's workflow name, a deleted workflow's included: the list names its runs.
-    const workflowIds = [...new Set(rows.flatMap((r) => r.workflowId ?? []))];
-    const names = new Map(
-      workflowIds.length
-        ? (
-            await context.db.select({ id: workflowsTable.id, name: workflowsTable.name }).from(workflowsTable).where(inArray(workflowsTable.id, workflowIds))
-          ).map((w) => [w.id, w.name])
-        : [],
-    );
-    return rows.map((r) => ({
-      ...runView(r),
-      workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null,
-      queued: queued.has(r.id),
-      title: titles.get(r.id) ?? null,
-      ...marks.get(r.id)!,
-    }));
-  });
+const listRuns = owner.input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional(), kind: z.literal("chat").optional() })).handler(async ({ input, context }) => {
+  if (input.triggerId) {
+    const [trigger] = await context.db
+      .select({ id: triggers.id })
+      .from(triggers)
+      .innerJoin(agents, eq(agents.id, triggers.agentId))
+      .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, context.access.workspaceId)));
+    if (!trigger) throw new ORPCError("NOT_FOUND", message("workflows.triggerNotFound"));
+  }
+  if (input.workflowId) await find(context, input.workflowId, true);
+  if (input.agentId) {
+    const [agent] = await context.db
+      .select({ id: agents.id })
+      .from(agents)
+      .where(and(eq(agents.id, input.agentId), eq(agents.workspaceId, context.access.workspaceId)));
+    if (!agent) throw new ORPCError("NOT_FOUND", message("workflows.agentNotFound"));
+  }
+  const rows = await context.db
+    .select()
+    .from(runsTable)
+    .where(
+      and(
+        eq(runsTable.ownerId, context.actorId),
+        readableRun(asReader(context)),
+        input.workflowId ? eq(runsTable.workflowId, input.workflowId) : undefined,
+        input.agentId ? eq(runsTable.agentId, input.agentId) : undefined,
+        input.triggerId ? eq(runsTable.triggerId, input.triggerId) : undefined,
+        input.kind ? sql`${runsTable.def} -> 'trigger' -> 'field' ->> 'type' = ${input.kind}` : undefined,
+      ),
+    )
+    .orderBy(desc(runsTable.createdAt), desc(runsTable.id))
+    .limit(50);
+  // The runs with a step waiting for a slot of its harness (`engine/slots.ts`).
+  const ids = rows.map((r) => r.id);
+  const queued = ids.length
+    ? new Set((await context.db.selectDistinct({ runId: stepRuns.runId }).from(stepRuns).where(and(inArray(stepRuns.runId, ids), isNotNull(stepRuns.queuedAt)))).map((r) => r.runId))
+    : new Set<string>();
+  // Each run's first message of the owner, cut in the database: a message can be long.
+  const firsts = ids.length
+    ? await context.db
+        .selectDistinctOn([messages.runId], { runId: messages.runId, text: sql<string>`left(${messages.text}, ${TITLE_LENGTH})` })
+        .from(messages)
+        .where(and(inArray(messages.runId, ids), eq(messages.role, "user")))
+        .orderBy(messages.runId, asc(messages.position))
+    : [];
+  const titles = new Map(firsts.map((m) => [m.runId, m.text.replace(/\s+/g, " ").trim() || null]));
+  const marks = await consultMarks(context.db, rows);
+  // Each workflow run's workflow name, a deleted workflow's included: the list names its runs.
+  const workflowIds = [...new Set(rows.flatMap((r) => r.workflowId ?? []))];
+  const names = new Map(
+    workflowIds.length ? (await context.db.select({ id: workflowsTable.id, name: workflowsTable.name }).from(workflowsTable).where(inArray(workflowsTable.id, workflowIds))).map((w) => [w.id, w.name]) : [],
+  );
+  return rows.map((r) => ({ ...runView(r), workflowName: r.workflowId ? (names.get(r.workflowId) ?? null) : null, queued: queued.has(r.id), title: titles.get(r.id) ?? null, ...marks.get(r.id)! }));
+});
 
 export const runs = { access, start, sendChat, steerQueued, editQueued, removeQueued, interruptChat, stop, get: getRun, stream, list: listRuns };

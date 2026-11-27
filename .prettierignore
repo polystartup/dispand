@@ -20,3 +20,16 @@ deploy
 *.md
 # Need a code owner's approval to change
 .github/workflows
+# Read line by line by guard tests (their allowlists hold exact lines): format once those match statements
+packages/domain/src/engine/engine.ts
+packages/domain/src/engine/scheduler.ts
+packages/domain/src/engine/step-lifecycle.ts
+packages/domain/src/runners/hub.ts
+packages/domain/src/push/sender.ts
+packages/domain/src/artifacts/show.ts
+packages/domain/src/data/files.ts
+packages/domain/src/engine/tooling.ts
+packages/domain/src/memory/tools.ts
+packages/domain/src/platform/proposals.ts
+packages/domain/src/workflows/procedures.ts
+apps/runner/src/sandbox/egress.ts

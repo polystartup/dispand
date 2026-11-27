@@ -36,57 +36,34 @@ export const showDetails = (input: unknown) => {
 
 export function showArtifact(app: PlatformApp, job: JobIdentity, input: Show): Promise<ToolResult> {
   const { format, bytes } = showDetails(input);
-  return traces.startActiveSpan(
-    "artifacts.show",
-    { attributes: { "dispand.job.id": job.runId, "dispand.artifact.format": format, "dispand.artifact.bytes": bytes } },
-    async (span): Promise<ToolResult> => {
-      try {
-        const made = await app.db.transaction(async (tx) => {
-          if (input.replaces !== undefined) {
-            const [earlier] = await tx
-              .select({ id: artifacts.id })
-              .from(artifacts)
-              .where(and(eq(artifacts.id, input.replaces), eq(artifacts.runId, job.runId)));
-            if (!earlier) return null;
-          }
-          // The Job's step: the one whose session calls.
-          const [step] = await tx
-            .select({ id: stepRuns.id })
-            .from(stepRuns)
-            .where(and(eq(stepRuns.runId, job.runId), isNotNull(stepRuns.sessionId)))
-            .limit(1);
-          const artifactId = newId("art");
-          const result: ArtifactRef = { kind: "artifact", artifactId, title: input.title, format, size: bytes };
-          const [message] = await tx
-            .insert(messages)
-            .values({ id: newId("msg"), ownerId: job.ownerId, runId: job.runId, stepRunId: step!.id, role: "tool", text: "artifact_show", result })
-            .returning();
-          await tx.insert(artifacts).values({
-            id: artifactId,
-            runId: job.runId,
-            stepRunId: step!.id,
-            messageId: message!.id,
-            title: input.title,
-            format,
-            code: input.code,
-            replaces: input.replaces ?? null,
-          });
-          return { artifactId, message: message! };
-        });
-        span.setAttribute("dispand.result", made ? "ok" : "not-found");
-        counts.counter("dispand.artifacts.shown").add(1, { "dispand.artifact.format": format, "dispand.result": made ? "ok" : "not-found" });
-        if (!made) return { ok: false, error: "Not found: replaces names no artifact of this Job" };
-        span.setAttribute("dispand.artifact.id", made.artifactId);
-        app.engine.settled([{ type: "message", message: messageView(made.message) }]);
-        return { ok: true, output: { artifactId: made.artifactId } };
-      } catch (err) {
-        span.setAttribute("dispand.result", "failed");
-        counts.counter("dispand.artifacts.shown").add(1, { "dispand.artifact.format": format, "dispand.result": "failed" });
-        recordError(span, "failed");
-        throw err;
-      } finally {
-        span.end();
-      }
-    },
-  );
+  return traces.startActiveSpan("artifacts.show", { attributes: { "dispand.job.id": job.runId, "dispand.artifact.format": format, "dispand.artifact.bytes": bytes } }, async (span): Promise<ToolResult> => {
+    try {
+      const made = await app.db.transaction(async (tx) => {
+        if (input.replaces !== undefined) {
+          const [earlier] = await tx.select({ id: artifacts.id }).from(artifacts).where(and(eq(artifacts.id, input.replaces), eq(artifacts.runId, job.runId)));
+          if (!earlier) return null;
+        }
+        // The Job's step: the one whose session calls.
+        const [step] = await tx.select({ id: stepRuns.id }).from(stepRuns).where(and(eq(stepRuns.runId, job.runId), isNotNull(stepRuns.sessionId))).limit(1);
+        const artifactId = newId("art");
+        const result: ArtifactRef = { kind: "artifact", artifactId, title: input.title, format, size: bytes };
+        const [message] = await tx.insert(messages).values({ id: newId("msg"), ownerId: job.ownerId, runId: job.runId, stepRunId: step!.id, role: "tool", text: "artifact_show", result }).returning();
+        await tx.insert(artifacts).values({ id: artifactId, runId: job.runId, stepRunId: step!.id, messageId: message!.id, title: input.title, format, code: input.code, replaces: input.replaces ?? null });
+        return { artifactId, message: message! };
+      });
+      span.setAttribute("dispand.result", made ? "ok" : "not-found");
+      counts.counter("dispand.artifacts.shown").add(1, { "dispand.artifact.format": format, "dispand.result": made ? "ok" : "not-found" });
+      if (!made) return { ok: false, error: "Not found: replaces names no artifact of this Job" };
+      span.setAttribute("dispand.artifact.id", made.artifactId);
+      app.engine.settled([{ type: "message", message: messageView(made.message) }]);
+      return { ok: true, output: { artifactId: made.artifactId } };
+    } catch (err) {
+      span.setAttribute("dispand.result", "failed");
+      counts.counter("dispand.artifacts.shown").add(1, { "dispand.artifact.format": format, "dispand.result": "failed" });
+      recordError(span, "failed");
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
 }

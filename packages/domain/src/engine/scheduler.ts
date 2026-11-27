@@ -77,13 +77,7 @@ async function workspaceOfAgent(tx: Tx, agentId: string): Promise<string> {
 }
 
 /** A trigger's firing that ends with no Job and won't be tried again, in `tx` with its fire's record. */
-async function skipped(
-  tx: Tx,
-  trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" | "name">,
-  firing: "schedule" | "event" | "poll",
-  reason: Skipped,
-  extra: { eventId?: string; items?: number } = {},
-) {
+async function skipped(tx: Tx, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId" | "name">, firing: "schedule" | "event" | "poll", reason: Skipped, extra: { eventId?: string; items?: number } = {}) {
   return recordAudit(tx, {
     workspaceId: await workspaceOfAgent(tx, trigger.agentId),
     ownerId: trigger.ownerId,
@@ -100,13 +94,7 @@ async function skipped(
  * new items it recorded, never an item or its id. In the claim's transaction for one skipped
  * before its call, after the call (never throwing) for one that called.
  */
-function pollRun(
-  workspaceId: string,
-  trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">,
-  config: PollConfig,
-  status: Exclude<PollStatus, "calling">,
-  found: number,
-): AuditEntry {
+function pollRun(workspaceId: string, trigger: Pick<TriggerRow, "id" | "ownerId" | "agentId">, config: PollConfig, status: Exclude<PollStatus, "calling">, found: number): AuditEntry {
   return {
     workspaceId,
     ownerId: trigger.ownerId,
@@ -123,29 +111,23 @@ type Fired = { runId: string | null; result: "started" | "already" | "skipped-ov
 
 /** One fire in its own span, counted by kind and result, with how late it was claimed. */
 function fired(kind: "workflow" | "trigger" | "event" | "job" | "poll", at: Date, now: Date, work: () => Promise<Fired>): Promise<string | null> {
-  return traces.startActiveSpan(
-    "scheduler.fire",
-    { attributes: { "dispand.fire.kind": kind, "dispand.fire.scheduled_for": at.toISOString() } },
-    async (span) => {
-      let result = "failed";
-      try {
-        const done = await work();
-        result = done.result;
-        if (done.runId) span.setAttribute("dispand.job.id", done.runId);
-        return done.runId;
-      } catch (err) {
-        recordError(span, errorKind(err));
-        throw err;
-      } finally {
-        span.setAttribute("dispand.fire.result", result);
-        span.end();
-        counts.counter("dispand.scheduler.fires").add(1, { "dispand.fire.kind": kind, "dispand.fire.result": result });
-        counts
-          .histogram("dispand.scheduler.lag", { unit: "ms", description: "How late a due schedule was claimed" })
-          .record(now.getTime() - at.getTime(), { "dispand.fire.kind": kind });
-      }
-    },
-  );
+  return traces.startActiveSpan("scheduler.fire", { attributes: { "dispand.fire.kind": kind, "dispand.fire.scheduled_for": at.toISOString() } }, async (span) => {
+    let result = "failed";
+    try {
+      const done = await work();
+      result = done.result;
+      if (done.runId) span.setAttribute("dispand.job.id", done.runId);
+      return done.runId;
+    } catch (err) {
+      recordError(span, errorKind(err));
+      throw err;
+    } finally {
+      span.setAttribute("dispand.fire.result", result);
+      span.end();
+      counts.counter("dispand.scheduler.fires").add(1, { "dispand.fire.kind": kind, "dispand.fire.result": result });
+      counts.histogram("dispand.scheduler.lag", { unit: "ms", description: "How late a due schedule was claimed" }).record(now.getTime() - at.getTime(), { "dispand.fire.kind": kind });
+    }
+  });
 }
 /** The most schedules one tick claims; the rest wait for the next. */
 const BATCH = 20;
@@ -173,16 +155,7 @@ type PollConfig = Extract<TriggerConfig, { kind: "poll" }>;
  * A poll claimed by a tick, whose calls are made once the claim commits: `lastPoll` and
  * `startedAt` are its walk's (the one under way, else this claim's), `token` the next page's.
  */
-type Claimed = {
-  pollId: string;
-  workspaceId: string;
-  trigger: TriggerRow & { config: PollConfig };
-  tool: typeof tools.$inferSelect;
-  at: Date;
-  lastPoll: string;
-  startedAt: Date;
-  token: string | null;
-};
+type Claimed = { pollId: string; workspaceId: string; trigger: TriggerRow & { config: PollConfig }; tool: typeof tools.$inferSelect; at: Date; lastPoll: string; startedAt: Date; token: string | null };
 /** One page of a poll recorded: what it found, and where the walk is. */
 type Page = { status: Exclude<PollStatus, "calling">; found: number; fresh: number; runIds: string[]; token: string | null };
 
@@ -301,13 +274,9 @@ export class Scheduler {
     const now = this.now();
     await this.engine.settleIdleChats();
     // Routed questions whose 72 h lapsed move on (`sweepEscalations`), in each workspace with one.
-    await eachScope(
-      this.db,
-      (db) => escalationScopes(db, now),
-      async () => {
-        await this.engine.sweepEscalations(now);
-      },
-    );
+    await eachScope(this.db, (db) => escalationScopes(db, now), async () => {
+      await this.engine.sweepEscalations(now);
+    });
     // What the organization gate held goes on once allowed again (nothing without a gate), before
     // new work takes the free places; its failure leaves the claims below to go on.
     await this.engine.redrain().catch((err: unknown) => logError("engine.redrain failed", err));
@@ -336,13 +305,9 @@ export class Scheduler {
       return { walks: Promise.resolve([]) };
     }
     const claimed: Promise<string[]>[] = [];
-    await eachScope(
-      this.db,
-      (db) => pollScopes(db, now),
-      async () => {
-        claimed.push((await this.startPolls(allowed)).walks);
-      },
-    );
+    await eachScope(this.db, (db) => pollScopes(db, now), async () => {
+      claimed.push((await this.startPolls(allowed)).walks);
+    });
     const walks = Promise.all(claimed)
       .then(async (polled) => {
         const runIds = polled.flat();
@@ -511,34 +476,13 @@ export class Scheduler {
       // when its continuation changed: `token` null).
       const cursor = t.pollCursor;
       if (cursor) {
-        claimed.push({
-          pollId,
-          workspaceId,
-          trigger: { ...t, config },
-          tool,
-          at: now,
-          lastPoll: cursor.lastPoll,
-          startedAt: new Date(cursor.startedAt),
-          token: cursor.token,
-        });
+        claimed.push({ pollId, workspaceId, trigger: { ...t, config }, tool, at: now, lastPoll: cursor.lastPoll, startedAt: new Date(cursor.startedAt), token: cursor.token });
         continue;
       }
       // `{{lastPoll}}`: when the newest recorded item was found (its walk's start), never a
       // later call's time, so nothing a poll didn't record is skipped by the next one's query.
-      const [newest] = await tx
-        .select({ at: max(pollItems.firstSeen) })
-        .from(pollItems)
-        .where(eq(pollItems.triggerId, t.id));
-      claimed.push({
-        pollId,
-        workspaceId,
-        trigger: { ...t, config },
-        tool,
-        at: now,
-        lastPoll: (newest?.at ?? t.createdAt).toISOString(),
-        startedAt: now,
-        token: null,
-      });
+      const [newest] = await tx.select({ at: max(pollItems.firstSeen) }).from(pollItems).where(eq(pollItems.triggerId, t.id));
+      claimed.push({ pollId, workspaceId, trigger: { ...t, config }, tool, at: now, lastPoll: (newest?.at ?? t.createdAt).toISOString(), startedAt: now, token: null });
     }
     return claimed;
   }
@@ -551,81 +495,68 @@ export class Scheduler {
    */
   private runPoll(c: Claimed, now: Date): Promise<string[]> {
     const kind = c.tool.kind;
-    return traces.startActiveSpan(
-      "scheduler.poll",
-      { attributes: { "dispand.trigger.id": c.trigger.id, "dispand.tool.id": c.tool.id, "dispand.tool.kind": kind } },
-      async (span) => {
-        const started = performance.now();
-        let result: Exclude<PollStatus, "calling"> = "failed";
-        let pages = 0;
-        let token = c.token;
-        // Jobs committed by earlier pages: returned even when a later one throws, so they go on.
-        const runIds: string[] = [];
-        const totals = { found: 0, fresh: 0 };
-        try {
-          const { toolId, action, arguments: args, itemsPath, idPath, continuation } = c.trigger.config;
-          const query = fillLastPoll(args, c.lastPoll) as Record<string, unknown>;
-          do {
-            // Checked again right before each call, against the trigger, the tool and the agent as
-            // they are now: a poll may have waited for others of its runner's tool meanwhile.
-            const [trigger] = await this.db.select().from(triggers).where(eq(triggers.id, c.trigger.id));
-            const [tool] = await this.db.select().from(tools).where(eq(tools.id, toolId));
-            const problem =
-              !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
-                ? "The trigger changed before its poll"
-                : ((await pollProblemText(this.db, c.trigger.agentId, toolId, action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null));
-            if (problem || !tool) {
-              result = "skipped";
-              await this.db
-                .update(polls)
-                .set({ status: "skipped", message: problem ?? stored("tools.poll.gone") })
-                .where(eq(polls.id, c.pollId));
-              return runIds;
-            }
-            const called = await this.polls.call(tool, action, token !== null && continuation ? { ...query, [continuation.argument]: token } : query);
-            pages++;
-            const next = called.ok && continuation ? nextToken(called.data, continuation) : { token: null };
-            const items = !called.ok ? { error: called.error } : "error" in next ? next : itemsOf(called.data, itemsPath, idPath);
-            const more = called.ok && called.hasMore;
-            const last = !("token" in next) || next.token === null || pages >= MAX_WALK_PAGES;
-            const page = await this.db.transaction((tx) =>
-              this.recordPoll(tx, c, items, "token" in next ? next.token : null, { last, more, pages, totals }, now),
-            );
-            result = page.status;
-            runIds.push(...page.runIds);
-            token = page.token;
-          } while (token !== null && pages < MAX_WALK_PAGES && result !== "failed" && result !== "skipped");
-          span.setAttributes({ "dispand.poll.found": totals.found, "dispand.poll.fresh": totals.fresh, "dispand.poll.pages": pages });
-          counts.counter("dispand.poll.items").add(totals.fresh, { "dispand.tool.kind": kind });
-          if (continuation && (result === "polled" || result === "baseline")) {
-            const walk = token === null ? "ended" : "bounded";
-            counts.counter("dispand.poll.walks").add(1, { "dispand.tool.kind": kind, "dispand.result": walk });
-            counts
-              .histogram("dispand.poll.walk.pages", { description: "Pages a poll read of its walk" })
-              .record(pages, { "dispand.tool.kind": kind, "dispand.result": walk });
+    return traces.startActiveSpan("scheduler.poll", { attributes: { "dispand.trigger.id": c.trigger.id, "dispand.tool.id": c.tool.id, "dispand.tool.kind": kind } }, async (span) => {
+      const started = performance.now();
+      let result: Exclude<PollStatus, "calling"> = "failed";
+      let pages = 0;
+      let token = c.token;
+      // Jobs committed by earlier pages: returned even when a later one throws, so they go on.
+      const runIds: string[] = [];
+      const totals = { found: 0, fresh: 0 };
+      try {
+        const { toolId, action, arguments: args, itemsPath, idPath, continuation } = c.trigger.config;
+        const query = fillLastPoll(args, c.lastPoll) as Record<string, unknown>;
+        do {
+          // Checked again right before each call, against the trigger, the tool and the agent as
+          // they are now: a poll may have waited for others of its runner's tool meanwhile.
+          const [trigger] = await this.db.select().from(triggers).where(eq(triggers.id, c.trigger.id));
+          const [tool] = await this.db.select().from(tools).where(eq(tools.id, toolId));
+          const problem =
+            !trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)
+              ? "The trigger changed before its poll"
+              : ((await pollProblemText(this.db, c.trigger.agentId, toolId, action)) ?? (tool && signInOf(tool) === "needed" ? NEEDS_SIGN_IN_POLL : null));
+          if (problem || !tool) {
+            result = "skipped";
+            await this.db.update(polls).set({ status: "skipped", message: problem ?? stored("tools.poll.gone") }).where(eq(polls.id, c.pollId));
+            return runIds;
           }
-          return runIds;
-        } catch (err) {
-          recordError(span, errorKind(err));
-          logError("scheduler.poll failed", err, { ref: c.trigger.id });
-          result = "failed";
-          await this.db
-            .update(polls)
-            .set({ status: "failed", message: stored("engine.poll.failed") })
-            .where(eq(polls.id, c.pollId))
-            .catch(() => undefined);
-          return runIds;
-        } finally {
-          await recordAuditAfter(this.db, pollRun(c.workspaceId, c.trigger, c.trigger.config, result, totals.fresh));
-          span.setAttribute("dispand.result", result);
-          span.end();
-          counts.counter("dispand.polls").add(1, { "dispand.tool.kind": kind, "dispand.result": result });
-          counts
-            .histogram("dispand.poll.duration", { unit: "ms", description: "A poll, from its call to its items recorded" })
-            .record(performance.now() - started, { "dispand.tool.kind": kind, "dispand.result": result });
+          const called = await this.polls.call(tool, action, token !== null && continuation ? { ...query, [continuation.argument]: token } : query);
+          pages++;
+          const next = called.ok && continuation ? nextToken(called.data, continuation) : { token: null };
+          const items = !called.ok ? { error: called.error } : "error" in next ? next : itemsOf(called.data, itemsPath, idPath);
+          const more = called.ok && called.hasMore;
+          const last = !("token" in next) || next.token === null || pages >= MAX_WALK_PAGES;
+          const page = await this.db.transaction((tx) => this.recordPoll(tx, c, items, "token" in next ? next.token : null, { last, more, pages, totals }, now));
+          result = page.status;
+          runIds.push(...page.runIds);
+          token = page.token;
+        } while (token !== null && pages < MAX_WALK_PAGES && result !== "failed" && result !== "skipped");
+        span.setAttributes({ "dispand.poll.found": totals.found, "dispand.poll.fresh": totals.fresh, "dispand.poll.pages": pages });
+        counts.counter("dispand.poll.items").add(totals.fresh, { "dispand.tool.kind": kind });
+        if (continuation && (result === "polled" || result === "baseline")) {
+          const walk = token === null ? "ended" : "bounded";
+          counts.counter("dispand.poll.walks").add(1, { "dispand.tool.kind": kind, "dispand.result": walk });
+          counts.histogram("dispand.poll.walk.pages", { description: "Pages a poll read of its walk" }).record(pages, { "dispand.tool.kind": kind, "dispand.result": walk });
         }
-      },
-    );
+        return runIds;
+      } catch (err) {
+        recordError(span, errorKind(err));
+        logError("scheduler.poll failed", err, { ref: c.trigger.id });
+        result = "failed";
+        await this.db
+          .update(polls)
+          .set({ status: "failed", message: stored("engine.poll.failed") })
+          .where(eq(polls.id, c.pollId))
+          .catch(() => undefined);
+        return runIds;
+      } finally {
+        await recordAuditAfter(this.db, pollRun(c.workspaceId, c.trigger, c.trigger.config, result, totals.fresh));
+        span.setAttribute("dispand.result", result);
+        span.end();
+        counts.counter("dispand.polls").add(1, { "dispand.tool.kind": kind, "dispand.result": result });
+        counts.histogram("dispand.poll.duration", { unit: "ms", description: "A poll, from its call to its items recorded" }).record(performance.now() - started, { "dispand.tool.kind": kind, "dispand.result": result });
+      }
+    });
   }
 
   /**
@@ -647,21 +578,12 @@ export class Scheduler {
     walk: { last: boolean; more: boolean; pages: number; totals: { found: number; fresh: number } },
     now: Date,
   ): Promise<Page> {
-    const finish = async (
-      status: Exclude<PollStatus, "calling">,
-      set: { found?: number; fresh?: number; message?: string | null } = {},
-      runIds: string[] = [],
-      next: string | null = null,
-    ) => {
-      await tx
-        .update(polls)
-        .set({ status, ...set })
-        .where(eq(polls.id, c.pollId));
+    const finish = async (status: Exclude<PollStatus, "calling">, set: { found?: number; fresh?: number; message?: string | null } = {}, runIds: string[] = [], next: string | null = null) => {
+      await tx.update(polls).set({ status, ...set }).where(eq(polls.id, c.pollId));
       return { status, found: set.found ?? 0, fresh: set.fresh ?? 0, runIds, token: next };
     };
     const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, c.trigger.id)).for("no key update");
-    if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config))
-      return finish("skipped", { message: stored("engine.poll.changed") });
+    if (!trigger?.enabled || canonicalJson(trigger.config) !== canonicalJson(c.trigger.config)) return finish("skipped", { message: stored("engine.poll.changed") });
     if ("error" in polled) return finish("failed", { message: polled.error });
     const baseline = trigger.lastCheckedAt === null;
     const values = polled.items.map((item) => ({
@@ -676,14 +598,7 @@ export class Scheduler {
     }));
     const inserted: ItemRow[] = [];
     // In chunks: one statement's parameters are bounded.
-    for (let i = 0; i < values.length; i += INSERT_CHUNK)
-      inserted.push(
-        ...(await tx
-          .insert(pollItems)
-          .values(values.slice(i, i + INSERT_CHUNK))
-          .onConflictDoNothing()
-          .returning()),
-      );
+    for (let i = 0; i < values.length; i += INSERT_CHUNK) inserted.push(...(await tx.insert(pollItems).values(values.slice(i, i + INSERT_CHUNK)).onConflictDoNothing().returning()));
     // In the order of the result.
     const order = new Map(values.map((v, i) => [v.id, i]));
     const fresh = inserted.sort((a, b) => order.get(a.id)! - order.get(b.id)!);
@@ -691,13 +606,7 @@ export class Scheduler {
     walk.totals.fresh += fresh.length;
     const noId = { count: polled.noId, path: c.trigger.config.idPath };
     const more = token !== null && walk.last ? { pages: walk.pages } : null;
-    const note = polled.noId
-      ? more
-        ? stored("engine.poll.noIdAndPages", { ...noId, ...more })
-        : stored("engine.poll.noId", noId)
-      : more
-        ? stored("engine.poll.pages", more)
-        : null;
+    const note = polled.noId ? (more ? stored("engine.poll.noIdAndPages", { ...noId, ...more }) : stored("engine.poll.noId", noId)) : more ? stored("engine.poll.pages", more) : null;
     const set = { ...walk.totals, message: note };
     // Where the walk is: its token kept for the next page, or the walk ended.
     const cursor: PollCursor | null = token === null ? null : { lastPoll: c.lastPoll, startedAt: c.startedAt.toISOString(), token };
@@ -722,11 +631,7 @@ export class Scheduler {
    */
   private async claimDeferredItems(tx: Tx, now: Date, allowed: Allowed): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx
-      .selectDistinct({ triggerId: pollItems.triggerId })
-      .from(pollItems)
-      .where(and(deferredPollItem, pollItemWithin(allowed)))
-      .limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: pollItems.triggerId }).from(pollItems).where(and(deferredPollItem, pollItemWithin(allowed))).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -753,10 +658,7 @@ export class Scheduler {
     const ids = items.map((i) => i.id);
     if (ids.length === 0) return [];
     if (!trigger.enabled || trigger.config.kind !== "poll") {
-      await tx
-        .update(pollItems)
-        .set({ status: "refused", message: stored("engine.poll.triggerOff") })
-        .where(inArray(pollItems.id, ids));
+      await tx.update(pollItems).set({ status: "refused", message: stored("engine.poll.triggerOff") }).where(inArray(pollItems.id, ids));
       await skipped(tx, trigger, "poll", "refused", { items: ids.length });
       return [];
     }
@@ -796,10 +698,7 @@ export class Scheduler {
       return { runId, result: "started" };
     } catch (err) {
       if (!(err instanceof EngineError)) throw err;
-      await tx
-        .update(pollItems)
-        .set({ status: "refused", message: stored(err.data.key, err.data.values) })
-        .where(eq(pollItems.id, item.id));
+      await tx.update(pollItems).set({ status: "refused", message: stored(err.data.key, err.data.values) }).where(eq(pollItems.id, item.id));
       await skipped(tx, trigger, "poll", "refused", { items: 1 });
       return { runId: null, result: "refused" };
     }
@@ -813,11 +712,7 @@ export class Scheduler {
    */
   private async claimEvents(tx: Tx, now: Date, allowed: Allowed): Promise<string[]> {
     const started: string[] = [];
-    const waiting = await tx
-      .selectDistinct({ triggerId: eventFires.triggerId })
-      .from(eventFires)
-      .where(and(deferredEventFire, eventFireWithin(allowed)))
-      .limit(EVENT_BATCH);
+    const waiting = await tx.selectDistinct({ triggerId: eventFires.triggerId }).from(eventFires).where(and(deferredEventFire, eventFireWithin(allowed))).limit(EVENT_BATCH);
     for (const { triggerId } of waiting) {
       const [trigger] = await tx.select().from(triggers).where(eq(triggers.id, triggerId)).for("no key update", { skipLocked: true });
       if (!trigger) continue;
@@ -851,15 +746,9 @@ export class Scheduler {
     const watching = new Map<string, TriggerRow[]>();
     for (const { event } of due) {
       if (!watching.has(event.workspaceId)) {
-        const rows = await tx
-          .select({ trigger: triggers })
-          .from(triggers)
-          .innerJoin(agents, eq(agents.id, triggers.agentId))
+        const rows = await tx.select({ trigger: triggers }).from(triggers).innerJoin(agents, eq(agents.id, triggers.agentId))
           .where(and(eq(agents.workspaceId, event.workspaceId), eq(triggers.kind, "primitive"), eq(triggers.enabled, true)));
-        watching.set(
-          event.workspaceId,
-          rows.map((r) => r.trigger),
-        );
+        watching.set(event.workspaceId, rows.map((r) => r.trigger));
       }
       const matching = watching.get(event.workspaceId)!.filter((t) => watches(t, event));
       if (matching.length > 0) {
@@ -911,14 +800,8 @@ export class Scheduler {
     const hourAgo = new Date(now.getTime() - HOUR_MS);
     const [recent] =
       trigger.kind === "poll"
-        ? await tx
-            .select({ jobs: count() })
-            .from(pollItems)
-            .where(and(eq(pollItems.triggerId, trigger.id), gt(pollItems.startedAt, hourAgo)))
-        : await tx
-            .select({ jobs: count() })
-            .from(eventFires)
-            .where(and(eq(eventFires.triggerId, trigger.id), gt(eventFires.startedAt, hourAgo)));
+        ? await tx.select({ jobs: count() }).from(pollItems).where(and(eq(pollItems.triggerId, trigger.id), gt(pollItems.startedAt, hourAgo)))
+        : await tx.select({ jobs: count() }).from(eventFires).where(and(eq(eventFires.triggerId, trigger.id), gt(eventFires.startedAt, hourAgo)));
     const left = Math.max(0, trigger.rateCap - recent!.jobs);
     if (left === 0 || trigger.concurrency !== "one-at-a-time") return left;
     const [active] = await tx
@@ -932,9 +815,7 @@ export class Scheduler {
   /** One event's fire for one trigger, in its own span and savepoint; a failure leaves it deferred, for the next tick. */
   private async tryFire(tx: Tx, triggerId: string, event: EventRow, fireId: string, now: Date, root: { id: string; state: string }): Promise<string | null> {
     try {
-      return await fired(event.tableId === JOB ? "job" : "event", event.createdAt, now, () =>
-        tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)),
-      );
+      return await fired(event.tableId === JOB ? "job" : "event", event.createdAt, now, () => tx.transaction((sp) => this.fireEvent(sp, triggerId, event, fireId, now, root)));
     } catch (err) {
       logError("scheduler.fireEvent failed", err);
       return null;
@@ -958,8 +839,7 @@ export class Scheduler {
         .update(eventFires)
         .set({ status, ...set, ...(status === "started" ? { startedAt: now } : {}) })
         .where(eq(eventFires.id, fireId));
-      if (read.trigger && (status === "refused" || status === "skipped-same-agent" || status === "out-of-scope"))
-        await skipped(tx, read.trigger, "event", status, { eventId: event.id });
+      if (read.trigger && (status === "refused" || status === "skipped-same-agent" || status === "out-of-scope")) await skipped(tx, read.trigger, "event", status, { eventId: event.id });
       return { runId: set.runId ?? null, result: status };
     };
     if (root.state === "stopped") return record("stopped", { message: ROOT_STOPPED });
@@ -967,9 +847,7 @@ export class Scheduler {
     read.trigger = trigger;
     if (!trigger?.enabled || !watches(trigger, event)) return record("refused", { message: stored("engine.fire.notWatching") });
     const writerId = event.actor.type === "user" ? null : event.actor.runId;
-    const writer = writerId
-      ? (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, writerId)))[0]
-      : null;
+    const writer = writerId ? (await tx.select({ id: runs.id, agentId: runs.agentId, source: runs.source, cause: runs.cause }).from(runs).where(eq(runs.id, writerId)))[0] : null;
     if (writer?.source === "agent" && writer.agentId === trigger.agentId) return record("skipped-same-agent");
     if (event.tableId !== JOB) {
       // Another Job's event (`job`, written by that Job) holds ids and a status only: any agent may be started by it.
@@ -1020,10 +898,7 @@ export class Scheduler {
     // Already fired for this time (another process, or before a restart).
     if (!fire) return { runId: null, result: "already" };
     const record = (status: ScheduleFireStatus, set: { runId?: string; message?: string }) =>
-      tx
-        .update(triggerFires)
-        .set({ status, ...set })
-        .where(eq(triggerFires.id, id));
+      tx.update(triggerFires).set({ status, ...set }).where(eq(triggerFires.id, id));
     if (trigger.concurrency === "one-at-a-time") {
       const [active] = await tx
         .select({ id: runs.id })
@@ -1069,10 +944,7 @@ export class Scheduler {
     // Already fired for this time (another process, or before a restart).
     if (!fire) return { runId: null, result: "already" };
     const record = (status: ScheduleFireStatus, set: { runId?: string; message?: string }) =>
-      tx
-        .update(scheduleFires)
-        .set({ status, ...set })
-        .where(eq(scheduleFires.id, id));
+      tx.update(scheduleFires).set({ status, ...set }).where(eq(scheduleFires.id, id));
     const [active] = await tx
       .select({ id: runs.id })
       .from(runs)

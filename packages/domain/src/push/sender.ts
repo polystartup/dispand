@@ -44,16 +44,8 @@ export function pushVia(fetch: typeof globalThis.fetch): Send {
   return async (subscription, payload, options) => {
     const request = generateRequestDetails(subscription, payload, options);
     // fetch sets the length itself.
-    const headers = Object.entries(request.headers)
-      .filter(([name]) => name.toLowerCase() !== "content-length")
-      .map(([name, value]) => [name, String(value)] as [string, string]);
-    const response = await fetch(request.endpoint, {
-      method: request.method,
-      headers,
-      body: request.body as Uint8Array<ArrayBuffer>,
-      redirect: "manual",
-      signal: AbortSignal.timeout(TIMEOUT_MS),
-    });
+    const headers = Object.entries(request.headers).filter(([name]) => name.toLowerCase() !== "content-length").map(([name, value]) => [name, String(value)] as [string, string]);
+    const response = await fetch(request.endpoint, { method: request.method, headers, body: request.body as Uint8Array<ArrayBuffer>, redirect: "manual", signal: AbortSignal.timeout(TIMEOUT_MS) });
     await response.body?.cancel();
     if (!response.ok) throw new WebPushError("The push service refused the push", response.status, {}, "", request.endpoint);
   };
@@ -165,13 +157,10 @@ export class PushSender {
     this.due = at;
     // With no scope, whoever woke it (a Job's question, a request), then under SYSTEM: a flush
     // spans every workspace and splits itself by recipient (`eachScope`).
-    this.timer = setTimeout(
-      detached(() => {
-        this.timer = undefined;
-        void inScope(SYSTEM, () => this.flush());
-      }),
-      delay,
-    );
+    this.timer = setTimeout(detached(() => {
+      this.timer = undefined;
+      void inScope(SYSTEM, () => this.flush());
+    }), delay);
     this.timer.unref();
   }
 
@@ -231,42 +220,38 @@ export class PushSender {
     if (!newest) return "skipped";
     // The recipient's role now, read on every flush, retries included: a person removed from the workspace gets nothing more.
     if (!(await authorize(this.db, newest.ownerId, newest.organizationId, newest.workspaceId))) return "skipped";
-    return traces.startActiveSpan(
-      "push.send",
-      { attributes: { "dispand.push.subscription": newest.subscriptionId, "dispand.push.count": items.length } },
-      async (span) => {
-        let outcome = "sent";
-        try {
-          // The language the user chose in Settings, else the one that browser shows.
-          const language = (newest.chosen ?? newest.language) as Language;
-          const agent = newest.builtIn === "assistant" ? rendered(language, "agent.assistant.name") : (newest.agentName ?? newest.workflowName ?? "");
-          const kind = newest.kind === "approval" ? "approval" : "question";
-          const payload: PushPayload = { text: rendered(language, `push.${kind}`, { agent, count: items.length }), count: items.length, itemId: newest.itemId };
-          const keys = JSON.parse(this.secrets.open(newest.keys, subscriptionKeysAad(newest.endpoint))) as PushSubscription["keys"];
-          await (this.options.send ?? pushVia(globalThis.fetch))({ endpoint: newest.endpoint, keys }, JSON.stringify(payload), {
-            vapidDetails: { subject: this.options.subject, ...vapid },
-            urgency: "high",
-          });
-          await this.db
-            .insert(pushDeliveries)
-            .values(items.map((i) => ({ questionId: i.itemId, subscriptionId: i.subscriptionId })))
-            .onConflictDoNothing();
-        } catch (err) {
-          if (err instanceof WebPushError && (err.statusCode === 404 || err.statusCode === 410)) {
-            outcome = "gone";
-            await this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, newest.subscriptionId));
-          } else {
-            outcome = "failed";
-            logError("push.send failed", err, { ref: newest.subscriptionId });
-          }
-          recordError(span, outcome);
-        } finally {
-          span.setAttribute("dispand.result", outcome);
-          counts.counter("dispand.push.sent").add(1, { "dispand.result": outcome });
-          span.end();
+    return traces.startActiveSpan("push.send", { attributes: { "dispand.push.subscription": newest.subscriptionId, "dispand.push.count": items.length } }, async (span) => {
+      let outcome = "sent";
+      try {
+        // The language the user chose in Settings, else the one that browser shows.
+        const language = (newest.chosen ?? newest.language) as Language;
+        const agent = newest.builtIn === "assistant" ? rendered(language, "agent.assistant.name") : (newest.agentName ?? newest.workflowName ?? "");
+        const kind = newest.kind === "approval" ? "approval" : "question";
+        const payload: PushPayload = { text: rendered(language, `push.${kind}`, { agent, count: items.length }), count: items.length, itemId: newest.itemId };
+        const keys = JSON.parse(this.secrets.open(newest.keys, subscriptionKeysAad(newest.endpoint))) as PushSubscription["keys"];
+        await (this.options.send ?? pushVia(globalThis.fetch))({ endpoint: newest.endpoint, keys }, JSON.stringify(payload), {
+          vapidDetails: { subject: this.options.subject, ...vapid },
+          urgency: "high",
+        });
+        await this.db
+          .insert(pushDeliveries)
+          .values(items.map((i) => ({ questionId: i.itemId, subscriptionId: i.subscriptionId })))
+          .onConflictDoNothing();
+      } catch (err) {
+        if (err instanceof WebPushError && (err.statusCode === 404 || err.statusCode === 410)) {
+          outcome = "gone";
+          await this.db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, newest.subscriptionId));
+        } else {
+          outcome = "failed";
+          logError("push.send failed", err, { ref: newest.subscriptionId });
         }
-        return outcome;
-      },
-    );
+        recordError(span, outcome);
+      } finally {
+        span.setAttribute("dispand.result", outcome);
+        counts.counter("dispand.push.sent").add(1, { "dispand.result": outcome });
+        span.end();
+      }
+      return outcome;
+    });
   }
 }

@@ -17,9 +17,7 @@ const traces = tracer("memory");
 const reads = meter("memory").counter("dispand.memory.reads", { description: "Memory reads by Jobs, by scope and result" });
 
 const ID = z.string().min(1).max(MAX_ID);
-const SCOPE = z
-  .enum(["workspace", "agent", "table"])
-  .describe("workspace: the workspace's memory; agent: your own agent's; table: a Data table's, named by tableId.");
+const SCOPE = z.enum(["workspace", "agent", "table"]).describe("workspace: the workspace's memory; agent: your own agent's; table: a Data table's, named by tableId.");
 const TABLE_ID = ID.optional().describe("The table, for the table scope.");
 
 export const ReadInput = z.object({
@@ -35,9 +33,7 @@ export const WriteInput = z.object({
   path: MemoryEntryShape.path.describe("Where the entry is, unique in its memory: a relative path ending in .md, at most 120 characters (`clients/acme.md`)."),
   name: MemoryEntryShape.name.describe("Its name, at most 60 characters."),
   description: MemoryEntryShape.description.describe("What it is about, on one line of at most 150 characters: the index shows it."),
-  type: MemoryEntryShape.type.describe(
-    `One of ${MEMORY_TYPES.join(", ")}: how the business works, how a kind of work is done, a fact, where something is found.`,
-  ),
+  type: MemoryEntryShape.type.describe(`One of ${MEMORY_TYPES.join(", ")}: how the business works, how a kind of work is done, a fact, where something is found.`),
   body: MemoryEntryShape.body.describe("The fact itself, at most 8,000 characters."),
 });
 export const RemoveInput = z.object({ scope: SCOPE, tableId: TABLE_ID, path: z.string().max(1000) });
@@ -55,8 +51,7 @@ export function tablesOf(input: unknown): string[] {
 }
 
 /** What the agent reads of an entry's author: a person, or a Job of an agent and whether it configured the workspace. */
-const authorView = (a: MemoryAuthor) =>
-  a.type === "user" ? { type: "person" as const } : { type: "agent" as const, agentId: a.agentId, jobId: a.runId, configure: a.configure };
+const authorView = (a: MemoryAuthor) => (a.type === "user" ? { type: "person" as const } : { type: "agent" as const, agentId: a.agentId, jobId: a.runId, configure: a.configure });
 
 /** `memory_read`: the workspace's, the Job's own agent's, its tables' with `data`, any agent's with `configure`. */
 export function readMemory(app: PlatformApp, job: JobIdentity, input: Read, rights: Rights): Promise<ToolResult> {
@@ -88,9 +83,7 @@ async function read(app: PlatformApp, job: JobIdentity, input: Read, rights: Rig
     if (agentId !== job.agentId && !rights.bundles.includes("configure")) return { ok: false, error: NOT_FOUND };
     // Another person's Assistant's own memory stays theirs: as if it weren't there.
     if (agentId !== job.agentId) {
-      const [other] = await app.db
-        .select({ id: agents.id })
-        .from(agents)
+      const [other] = await app.db.select({ id: agents.id }).from(agents)
         .where(and(eq(agents.id, agentId), eq(agents.workspaceId, job.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, job.ownerId))));
       if (!other) return { ok: false, error: NOT_FOUND };
     }
@@ -131,12 +124,7 @@ function writable(job: JobIdentity, input: { scope: MemoryScope["scope"]; tableI
 }
 
 /** The Job that writes: its agent, its run and whether it configures the workspace. */
-const authorOf = (job: JobIdentity, rights: Rights): MemoryAuthor => ({
-  type: "agent",
-  agentId: job.agentId,
-  runId: job.runId,
-  configure: rights.bundles.includes("configure"),
-});
+const authorOf = (job: JobIdentity, rights: Rights): MemoryAuthor => ({ type: "agent", agentId: job.agentId, runId: job.runId, configure: rights.bundles.includes("configure") });
 
 /** A proposed `memory_add` or `memory_update` (`shown`): why the Job may not write there, refused when proposed, or nothing. */
 export async function refuseProposedWrite(app: PlatformApp, job: JobIdentity, input: Write): Promise<string | undefined> {
@@ -150,10 +138,7 @@ export async function refuseProposedWrite(app: PlatformApp, job: JobIdentity, in
 export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input: Write, rights: Rights, mode: "add" | "update"): Promise<ToolResult> {
   const where = writable(job, input, rights);
   const entry = { path: input.path, name: input.name, description: input.description, type: input.type, body: input.body };
-  const done =
-    typeof where === "string"
-      ? await refuseWrite(input.scope, mode, where)
-      : await writeMemory(app.db, job.ownerId, job.workspaceId, where, entry, authorOf(job, rights), mode);
+  const done = typeof where === "string" ? await refuseWrite(input.scope, mode, where) : await writeMemory(app.db, job.ownerId, job.workspaceId, where, entry, authorOf(job, rights), mode);
   return "error" in done ? { ok: false, error: done.error } : { ok: true, output: { path: entry.path } };
 }
 
@@ -161,7 +146,6 @@ export async function writeMemoryTool(app: PlatformApp, job: JobIdentity, input:
 export async function removeMemoryTool(app: PlatformApp, job: JobIdentity, input: Remove, rights: Rights): Promise<ToolResult> {
   const where = writable(job, input, rights);
   if (typeof where === "string") return { ok: false, error: (await refuseWrite(input.scope, "remove", where)).error };
-  if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights)))
-    return { ok: true, output: { path: input.path, removed: true } };
+  if (await removeMemory(app.db, job.ownerId, job.workspaceId, where, input.path, authorOf(job, rights))) return { ok: true, output: { path: input.path, removed: true } };
   return { ok: false, error: (await refuseWrite(input.scope, "remove", `There is no entry ${input.path}.`)).error };
 }

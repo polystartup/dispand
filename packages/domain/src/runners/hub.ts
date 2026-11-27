@@ -1,7 +1,13 @@
 import { RunnerUpdates, type UpdateStates } from "./updates.ts";
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
-import { type HarnessEvent, parseRunnerMessage, PROTOCOL_VERSION, type RunnerToServer, type ServerToRunner } from "@dispand/runner-protocol";
+import {
+  type HarnessEvent,
+  parseRunnerMessage,
+  PROTOCOL_VERSION,
+  type RunnerToServer,
+  type ServerToRunner,
+} from "@dispand/runner-protocol";
 import { and, eq, isNull } from "drizzle-orm";
 import { WebSocket, WebSocketServer } from "ws";
 import type { Db } from "../db/client.ts";
@@ -154,7 +160,7 @@ export class RunnerHub {
       if (path === null) return refuseUpgrade(socket, 400);
       if (path !== RUNNER_WS_PATH) return refuseUpgrade(socket, 404);
       const refused = this.refusal();
-      if (refused) return (connected("refused"), refuseUpgrade(socket, refused));
+      if (refused) return connected("refused"), refuseUpgrade(socket, refused);
       this.accept(req, socket, head).catch((err: unknown) => {
         logError("runner upgrade failed", err);
         refuseUpgrade(socket, 500);
@@ -209,9 +215,7 @@ export class RunnerHub {
         span.setAttribute("dispand.result", result);
         span.end();
         counts.counter("dispand.runner.tool_calls").add(1, { "dispand.result": result });
-        counts
-          .histogram("dispand.runner.tool_call.duration", { unit: "ms", description: "From a poll's call to the runner's reply" })
-          .record(performance.now() - started, { "dispand.result": result });
+        counts.histogram("dispand.runner.tool_call.duration", { unit: "ms", description: "From a poll's call to the runner's reply" }).record(performance.now() - started, { "dispand.result": result });
       }
     });
   }
@@ -225,7 +229,7 @@ export class RunnerHub {
     return traces.startActiveSpan("runner.commands", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
       let result = "failed";
       try {
-        const reply = (await this.ask(runnerId, msg, 25_000)) as CommandsReply;
+        const reply = await this.ask(runnerId, msg, 25_000) as CommandsReply;
         result = reply.error ? "error" : "ok";
         return reply;
       } catch (err) {
@@ -244,7 +248,7 @@ export class RunnerHub {
     return traces.startActiveSpan("runner.models", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
       let result = "failed";
       try {
-        const reply = (await this.ask(runnerId, msg, 25_000)) as ModelsReply;
+        const reply = await this.ask(runnerId, msg, 25_000) as ModelsReply;
         result = reply.error ? "error" : "ok";
         return reply;
       } catch (err) {
@@ -264,7 +268,7 @@ export class RunnerHub {
     return traces.startActiveSpan("runner.plugins", { attributes: { "dispand.runner.id": runnerId } }, async (span) => {
       let result = "failed";
       try {
-        const reply = (await this.ask(runnerId, msg, 135_000)) as PluginReply;
+        const reply = await this.ask(runnerId, msg, 135_000) as PluginReply;
         result = reply.report.error ? "error" : "ok";
         return reply;
       } catch (err) {
@@ -365,34 +369,25 @@ export class RunnerHub {
   private async accept(req: IncomingMessage, socket: Duplex, head: Buffer) {
     const [scheme, token] = (req.headers.authorization ?? "").split(" ");
     const runner = scheme === "Bearer" && token ? await findRunnerByToken(this.db, token) : null;
-    if (!runner) return (connected("unauthorized"), refuseUpgrade(socket, 401));
+    if (!runner) return connected("unauthorized"), refuseUpgrade(socket, 401);
     const refused = this.refusal(runner.id);
-    if (refused) return (connected("refused"), refuseUpgrade(socket, refused));
+    if (refused) return connected("refused"), refuseUpgrade(socket, refused);
     const protocol = req.headers["dispand-protocol"];
     if (typeof protocol === "string" && /^[0-9]{1,9}$/.test(protocol) && Number(protocol) < PROTOCOL_VERSION) {
       // An older runner: Settings shows it as outdated, with the command that updates it.
-      await inScope(runner.scope, () =>
-        this.db
-          .update(runners)
-          .set({ protocolVersion: Number(protocol) })
-          .where(eq(runners.id, runner.id)),
-      );
+      await inScope(runner.scope, () => this.db.update(runners).set({ protocolVersion: Number(protocol) }).where(eq(runners.id, runner.id)));
       connected("outdated");
       return refuseUpgrade(socket, 426, "update the runner");
     }
-    if (protocol !== String(PROTOCOL_VERSION)) return (connected("bad-protocol"), refuseUpgrade(socket, 400));
+    if (protocol !== String(PROTOCOL_VERSION)) return connected("bad-protocol"), refuseUpgrade(socket, 400);
     let handoff: number | undefined;
     if (this.admission) {
       handoff = this.handoffs.get(runner.id) ?? 0;
-      if (!(await this.admission({ id: runner.id, tokenHash: runner.tokenHash }))) return (connected("not-admitted"), refuseUpgrade(socket, 503));
+      if (!(await this.admission({ id: runner.id, tokenHash: runner.tokenHash }))) return connected("not-admitted"), refuseUpgrade(socket, 503);
       // Admitted now, still with the token it presented: its seq as the process that held it before left it.
-      const [now] = await inScope(runner.scope, () =>
-        this.db
-          .select({ lastSeq: runners.lastSeq })
-          .from(runners)
-          .where(and(eq(runners.id, runner.id), eq(runners.tokenHash, runner.tokenHash), isNull(runners.revokedAt))),
-      );
-      if (!now) return (connected("unauthorized"), refuseUpgrade(socket, 401));
+      const [now] = await inScope(runner.scope, () => this.db.select({ lastSeq: runners.lastSeq }).from(runners)
+        .where(and(eq(runners.id, runner.id), eq(runners.tokenHash, runner.tokenHash), isNull(runners.revokedAt))));
+      if (!now) return connected("unauthorized"), refuseUpgrade(socket, 401);
       runner.lastSeq = now.lastSeq;
     }
     connected("accepted");
@@ -406,14 +401,8 @@ export class RunnerHub {
     // A malformed frame (unmasked, bad opcode…) makes `ws` emit `error` (without a listener it would
     // crash the process) and close the socket itself.
     // Listeners run with no scope, whoever fires them (`detached`): the work they start sets its own.
-    ws.on(
-      "error",
-      detached(() => this.retire(conn)),
-    );
-    ws.on(
-      "close",
-      detached(() => this.retire(conn)),
-    );
+    ws.on("error", detached(() => this.retire(conn)));
+    ws.on("close", detached(() => this.retire(conn)));
     // `ws` may complete the handshake later than the check above: check once more.
     if (this.refusal(runner.id)) return this.retire(conn, 1008, "refused");
     if (handoff !== undefined && (this.handoffs.get(runner.id) ?? 0) !== handoff) return this.retire(conn, 1013, "handed off");
@@ -431,20 +420,17 @@ export class RunnerHub {
     const replaced = this.connections.get(runner.id);
     if (replaced) this.retire(replaced, 4000, "replaced by a new connection");
     this.connections.set(runner.id, conn);
-    ws.on(
-      "message",
-      detached((data: WebSocket.RawData) => {
-        if (conn.retired) return;
-        const raw = String(data);
-        const bytes = Buffer.byteLength(raw);
-        if (runnerState.pending.length >= MAX_PENDING_MESSAGES || runnerState.pendingBytes + bytes > MAX_PENDING_BYTES) {
-          return this.retire(conn, 1008, "too many pending messages");
-        }
-        runnerState.pending.push({ conn, raw, bytes });
-        runnerState.pendingBytes += bytes;
-        this.drain(runnerState).catch((err: unknown) => logError("runner inbox failed", err, { runnerId: runner.id }));
-      }),
-    );
+    ws.on("message", detached((data: WebSocket.RawData) => {
+      if (conn.retired) return;
+      const raw = String(data);
+      const bytes = Buffer.byteLength(raw);
+      if (runnerState.pending.length >= MAX_PENDING_MESSAGES || runnerState.pendingBytes + bytes > MAX_PENDING_BYTES) {
+        return this.retire(conn, 1008, "too many pending messages");
+      }
+      runnerState.pending.push({ conn, raw, bytes });
+      runnerState.pendingBytes += bytes;
+      this.drain(runnerState).catch((err: unknown) => logError("runner inbox failed", err, { runnerId: runner.id }));
+    }));
   }
 
   /** The runner's one drain loop: takes the next pending message and handles it, until none is left. */
@@ -479,7 +465,10 @@ export class RunnerHub {
         this.connections.delete(conn.runnerId);
         // Its replies can't come any more.
         for (const w of [...this.waiting.values()]) if (w.runnerId === conn.runnerId) w.reject(new RunnerRequestFailed("runner offline"));
-        const write = inScope(conn.scope, () => this.db.update(runners).set({ lastSeenAt: new Date() }).where(eq(runners.id, conn.runnerId)))
+        const write = inScope(conn.scope, () => this.db
+          .update(runners)
+          .set({ lastSeenAt: new Date() })
+          .where(eq(runners.id, conn.runnerId)))
           .catch((err: unknown) => logError("runner last seen update failed", err, { runnerId: conn.runnerId }))
           .finally(() => this.lastSeenWrites.delete(write));
         this.lastSeenWrites.add(write);
@@ -563,7 +552,9 @@ export class RunnerHub {
   /** The runner confirms an enrollment challenge (`subscriptions.ts`): one reply, the same error whatever bound nothing. */
   private async enroll(conn: Connection, msg: Extract<RunnerToServer, { type: "subscription.enroll" }>) {
     const { organizationId, workspaceId } = conn.scope;
-    const enrollmentId = organizationId && workspaceId ? await confirmEnrollment(this.db, { id: conn.runnerId, organizationId, workspaceId }, msg) : null;
+    const enrollmentId = organizationId && workspaceId
+      ? await confirmEnrollment(this.db, { id: conn.runnerId, organizationId, workspaceId }, msg)
+      : null;
     const reply: ServerToRunner = enrollmentId
       ? { type: "subscription.enrolled", askId: msg.askId, enrollmentId }
       : { type: "subscription.enrolled", askId: msg.askId, error: "This enrollment code is unknown, used or expired. Start a new enrollment in Dispand." };
@@ -585,10 +576,7 @@ export class RunnerHub {
     if (w?.runnerId !== conn.runnerId || w.type !== msg.type) return;
     // Serialize inventory writes with hello on this runner's drain loop, including across reconnects.
     if (msg.type === "clis.replied" && msg.clis) {
-      await this.db
-        .update(runners)
-        .set({ clis: sharedClis(msg.clis) })
-        .where(eq(runners.id, conn.runnerId));
+      await this.db.update(runners).set({ clis: sharedClis(msg.clis) }).where(eq(runners.id, conn.runnerId));
       await reportedSubscriptions(this.db, conn.runnerId, msg.clis.subscriptions ?? []);
     }
     w.resolve(msg);
