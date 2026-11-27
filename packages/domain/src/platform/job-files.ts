@@ -27,7 +27,7 @@ async function readCapped(request: Request, max: number): Promise<string | null>
   if (!request.body) return "";
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for await (const chunk of request.body) {
+  for await (const chunk of request.body as AsyncIterable<Uint8Array>) {
     size += chunk.byteLength;
     if (size > max) return null;
     chunks.push(chunk);

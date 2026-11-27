@@ -239,7 +239,7 @@ test(
     const params = await signIn(url);
     const recorder = await recordScopes(ctx.db);
     const app = { db: recorder.db, auth: ctx.auth, secrets: ctx.secrets, tools: ctx.tools };
-    const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
+    const request = new Request(`${APP}/oauth/callback?${params.toString()}`, { headers: ctx.headers });
     expect((await inScope({ workspaceId: "ws_other" }, () => handleToolOAuthCallback(request, app))).status).toBe(303);
     expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
     const { ownerId: userId, organizationId, workspaceId } = ctx;
@@ -260,11 +260,11 @@ test("a member connects by OAuth a tool someone else added; the flow is theirs a
   const { url } = await call(router.tools.authorize, { id: tool.id }, { context: pat });
   const params = await signIn(url);
   // The owner's session can't finish Pat's flow.
-  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers }), ctx)).status).toBe(400);
+  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${params.toString()}`, { headers: ctx.headers }), ctx)).status).toBe(400);
   expect((await row(ctx, tool.id)).oauthStatus).toBe("authorize");
   const { url: again } = await call(router.tools.authorize, { id: tool.id }, { context: pat });
   const back = await signIn(again);
-  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${back}`, { headers: pat.headers }), pat)).status).toBe(303);
+  expect((await handleToolOAuthCallback(new Request(`${APP}/oauth/callback?${back.toString()}`, { headers: pat.headers }), pat)).status).toBe(303);
   expect((await row(ctx, tool.id)).oauthStatus).toBe("connected");
 });
 
@@ -276,7 +276,7 @@ test("a signed-in tool owner who lost workspace access cannot exchange the pendi
   const params = await signIn(url);
   await ctx.db.delete(organizationMembers).where(eq(organizationMembers.userId, ctx.ownerId));
   const requests = as.paths.length;
-  const request = new Request(`${APP}/oauth/callback?${params}`, { headers: ctx.headers });
+  const request = new Request(`${APP}/oauth/callback?${params.toString()}`, { headers: ctx.headers });
   expect((await handleToolOAuthCallback(request, ctx)).status).toBe(400);
   expect(as.paths).toHaveLength(requests);
   expect((await row(ctx, tool.id)).oauthStatus).toBe("authorize");

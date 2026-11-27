@@ -21,7 +21,7 @@ const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 /** The schema's `type`, or the first non-null one of a list; text when it names none we coerce to. */
 function typeOf(schema: unknown): ParamType {
   const type: unknown = isObject(schema) ? schema.type : undefined;
-  const named = Array.isArray(type) ? type.find((t) => t !== "null") : type;
+  const named: unknown = Array.isArray(type) ? type.find((t) => t !== "null") : type;
   return typeof named === "string" && TYPES.includes(named) ? (named as ParamType) : "string";
 }
 

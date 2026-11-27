@@ -65,7 +65,7 @@ export function cellSchema(field: FieldSchema): z.ZodType<Cell> {
     case "date":
       return z.string().refine(isDate, expected("date")).nullable();
     case "number":
-      return z.number().finite().nullable();
+      return z.number().nullable();
     case "checkbox":
       return z.boolean().nullable();
     case "single-select": {

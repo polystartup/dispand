@@ -280,7 +280,7 @@ test("models lists a saved harness's models with its stored key, never returning
   const created = await call(router.harnesses.create, cloud, { context });
   const seen: string[] = [];
   const fetcher = (async (url: URL, init: RequestInit) => {
-    seen.push(`${url} ${(init.headers as Record<string, string>)["x-api-key"]}`);
+    seen.push(`${String(url)} ${(init.headers as Record<string, string>)["x-api-key"]}`);
     return Response.json({ data: [{ id: "claude-opus-5-5", display_name: "Claude Opus 5.5" }] });
   }) as typeof fetch;
   vi.stubGlobal("fetch", fetcher);
@@ -377,7 +377,7 @@ test("model discovery to a new URL sends no saved key", async () => {
   await call(router.harnesses.update, { ...local, id: created.id, apiKey: undefined, baseUrl: "https://elsewhere.example.test/v1" }, { context });
   const seen: string[] = [];
   vi.stubGlobal("fetch", async (url: URL, init: RequestInit) => {
-    seen.push(`${url} ${new Headers(init.headers).get("authorization")}`);
+    seen.push(`${String(url)} ${new Headers(init.headers).get("authorization")}`);
     return Response.json({ data: [{ id: "qwen" }] });
   });
   try {

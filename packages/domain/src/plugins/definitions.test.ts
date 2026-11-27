@@ -147,8 +147,8 @@ test("a hostile plugin: each bad definition is skipped and listed alone, and its
     "plugin.json": manifest({ extensions: { "com.dispand": "not an object" } }),
     "com.dispand/primitives/clients.json": clients,
     // A path leaving the root, a link and a file past 2 MiB are never read.
-    "com.dispand/primitives/escape.json": { link: "../../../outside.json" },
-    "com.dispand/agents/x.md": { link: join(outside, "agent.md") },
+    "com.dispand/primitives/escape.json": { symlink: "../../../outside.json" },
+    "com.dispand/agents/x.md": { symlink: join(outside, "agent.md") },
     "com.dispand/agents/huge.md": agentMd("name: Huge", "x".repeat(3 * 1024 * 1024)),
     "com.dispand/primitives/orphan.json": json({
       name: "Orphan",

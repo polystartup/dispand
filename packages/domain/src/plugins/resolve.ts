@@ -464,7 +464,7 @@ export async function conflictView(db: Db | Tx, r: Conflict) {
  * (an element's field, with Stem's value and the owner's), with the token its answer carries.
  */
 export async function approvalView(db: Db, q: { runId: string; payload: unknown }) {
-  const pluginId = String((q.payload as { input?: { pluginId?: unknown } }).input?.pluginId ?? "");
+  const pluginId = String((q.payload as { input?: { pluginId?: string } }).input?.pluginId ?? "");
   const [plugin] = await db
     .select({ id: pluginsTable.id, name: pluginsTable.name })
     .from(pluginsTable)

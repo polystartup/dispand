@@ -7,8 +7,8 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { expect, vi } from "vitest";
 
-/** A file of a fixture: its text, or a symbolic link to `link`. */
-export type FixtureFile = string | { link: string };
+/** A file of a fixture: its text, or a symbolic link to `symlink` (not `link`, which `string`'s deprecated `link()` shadows). */
+export type FixtureFile = string | { symlink: string };
 
 /** Writes `files` (relative paths) under `dir`. */
 export function writeTree(dir: string, files: Record<string, FixtureFile>): void {
@@ -17,7 +17,7 @@ export function writeTree(dir: string, files: Record<string, FixtureFile>): void
     mkdirSync(dirname(full), { recursive: true });
     rmSync(full, { force: true });
     if (typeof content === "string") writeFileSync(full, content);
-    else symlinkSync(content.link, full);
+    else symlinkSync(content.symlink, full);
   }
 }
 

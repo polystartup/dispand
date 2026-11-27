@@ -422,7 +422,8 @@ export class RunnerHub {
     this.connections.set(runner.id, conn);
     ws.on("message", detached((data: WebSocket.RawData) => {
       if (conn.retired) return;
-      const raw = String(data);
+      // ws hands a message, text or binary, as one Buffer (binaryType is left at nodebuffer).
+      const raw = (data as Buffer).toString();
       const bytes = Buffer.byteLength(raw);
       if (runnerState.pending.length >= MAX_PENDING_MESSAGES || runnerState.pendingBytes + bytes > MAX_PENDING_BYTES) {
         return this.retire(conn, 1008, "too many pending messages");

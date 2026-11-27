@@ -22,7 +22,7 @@ export default tseslint.config(
             // The low-level server: it shows a tool's JSON Schema as it is, where McpServer wants Zod.
             { from: "package", package: "@modelcontextprotocol/server", name: "Server" },
             // OpenAI-compatible servers know `max_tokens`; many don't know `max_completion_tokens`.
-            { from: "package", package: "openai", name: "max_tokens" },
+            { from: "package", package: "openai", name: ["ChatCompletionCreateParamsStreaming", "ChatCompletionCreateParamsBase"] },
             // Experimental, so marked deprecated, with no stable replacement yet.
             { from: "package", package: "@assistant-ui/react", name: ["unstable_useSlashCommandAdapter", "unstable_useTriggerPopoverRootContext"] },
           ],
@@ -32,8 +32,9 @@ export default tseslint.config(
       "@typescript-eslint/prefer-promise-reject-errors": ["error", { allowThrowingAny: true, allowThrowingUnknown: true }],
       // `as never` and `as unknown` are deliberate escapes, which the rule calls unnecessary where a
       // generic infers its type from them (`t(key as never)`, `vi.hoisted(() => ({ e: x as unknown }))`).
-      // `as typeof fetch`: apps/web compiles domain's sources with the DOM's `fetch`, which needs it.
-      "@typescript-eslint/no-unnecessary-type-assertion": ["error", { typesToIgnore: ["never", "unknown", "typeof fetch"] }],
+      // `as typeof fetch` and `as Response`: apps/web compiles domain's sources with the DOM's
+      // `fetch`, where undici's needs them.
+      "@typescript-eslint/no-unnecessary-type-assertion": ["error", { typesToIgnore: ["never", "unknown", "typeof fetch", "Response"] }],
       // TanStack Router's `redirect()` is thrown, by design.
       "@typescript-eslint/only-throw-error": ["error", { allow: [{ from: "package", package: "@tanstack/router-core", name: "Redirect" }] }],
       // An `async` function without `await` still turns a throw into a rejection, and gives the

@@ -61,7 +61,7 @@ export async function runDataStep(
       .orderBy(...orderOf(table.fields, []))
       .limit(step.limit);
     const text = JSON.stringify(
-      found.map((r) => Object.fromEntries([["id", r.id], ...table.fields.map((f) => [f.name, cellText(f, r.values[f.id] ?? null)])])),
+      found.map((r) => Object.fromEntries([["id", r.id] as const, ...table.fields.map((f) => [f.name, cellText(f, r.values[f.id] ?? null)] as const)])),
     );
     if (text.length > MAX_ROWS_TEXT) {
       return { error: stored("engine.fail.rowsTooLong", { length: text.length, max: MAX_ROWS_TEXT }) };

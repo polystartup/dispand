@@ -12,8 +12,13 @@ export function fakeFetch(...fixtures: string[]) {
   const sent: SentRequest[] = [];
   const queue = [...fixtures];
   const fetch = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const text = String(init?.body ?? "");
-    sent.push({ url: String(input), headers: new Headers(init?.headers), body: JSON.parse(text), text });
+    const text = typeof init?.body === "string" ? init.body : "";
+    sent.push({
+      url: input instanceof Request ? input.url : String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(text) as Record<string, unknown>,
+      text,
+    });
     const next = queue.shift();
     if (next === undefined) throw new Error("no fixture left for this request");
     return new Response(fixture(next), { status: 200, headers: { "content-type": "text/event-stream" } });

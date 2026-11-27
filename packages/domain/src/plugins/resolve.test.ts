@@ -68,7 +68,7 @@ test("a reset takes the plugin's value at once; a merge equal to the owner's val
     ]);
     expect(await t.all()).not.toContain("Mine");
   } finally {
-    t.stop();
+    await t.stop();
     s.remove();
   }
 });

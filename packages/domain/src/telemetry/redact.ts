@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { type Attributes, type AttributeValue, SpanKind } from "@opentelemetry/api";
+import { type Attributes, SpanKind } from "@opentelemetry/api";
 import type { ReadableLogRecord } from "@opentelemetry/sdk-logs";
 import type { ReadableSpan, TimedEvent } from "@opentelemetry/sdk-trace";
 
@@ -72,7 +72,7 @@ function cleanUrl(value: string): string {
   }
 }
 
-function cleanValue(value: AttributeValue | undefined): AttributeValue | undefined {
+function cleanValue(value: unknown): unknown {
   if (Array.isArray(value)) return (value as unknown[]).filter((v) => !isSecret(v));
   return isSecret(value) ? undefined : value;
 }
