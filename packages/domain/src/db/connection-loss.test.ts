@@ -138,7 +138,9 @@ const PG = (t: ts.Node) => ts.isStringLiteralLike(t) && ["pg", "drizzle-orm/node
 /**
  * Whether `path` loads node-postgres: each `from "pg"`, `import("pg"` and `require("pg"` the old line
  * regex matched, as tokens, loads it but in a type-only import or export (`import type … from "pg"`,
- * `export type … from`, `import type x = require(`), which the old test left out by its line.
+ * `export type … from`, `import type x = require(`), which the old test left out by its line. A
+ * type's `import("pg")` counts, as the old regex counted it but on an `export type` line: write
+ * `import type` instead.
  */
 function loadsPg(path: string): boolean {
   const text = readFileSync(path, "utf8");
