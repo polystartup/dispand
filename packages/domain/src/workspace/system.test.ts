@@ -22,9 +22,13 @@ async function pollTrigger(
   await db
     .insert(agents)
     .values({ id: `agent_${id}`, workspaceId, ownerId: agent.ownerId, name: `Agent ${id}`, harnessId, systemPrompt: "", builtIn: agent.builtIn });
-  await db.insert(triggers).values({ id, agentId: `agent_${id}`, ownerId: agent.ownerId, kind: "poll", name: `Trigger ${id}`, config, enabled: agent.enabled ?? true });
+  await db
+    .insert(triggers)
+    .values({ id, agentId: `agent_${id}`, ownerId: agent.ownerId, kind: "poll", name: `Trigger ${id}`, config, enabled: agent.enabled ?? true });
   for (const [i, [status, message]] of list.entries())
-    await db.insert(polls).values({ id: `${id}_poll_${i}`, triggerId: id, ownerId: agent.ownerId, at: new Date(Date.UTC(2026, 10, 1, 10, i)), status, message });
+    await db
+      .insert(polls)
+      .values({ id: `${id}_poll_${i}`, triggerId: id, ownerId: agent.ownerId, at: new Date(Date.UTC(2026, 10, 1, 10, i)), status, message });
 }
 
 test("system › a workspace's managers read it, its members don't", async () => {
@@ -41,7 +45,10 @@ test("system › the workspace's runners, each with the protocol it last connect
   const { a, b } = await secondWorkspace(owner);
   const never = await runnerWithClis(a, "Never connected");
   const old = await runnerWithClis(a, "Old");
-  await a.db.update(runners).set({ protocolVersion: PROTOCOL_VERSION - 1 }).where(eq(runners.id, old.runnerId));
+  await a.db
+    .update(runners)
+    .set({ protocolVersion: PROTOCOL_VERSION - 1 })
+    .where(eq(runners.id, old.runnerId));
   const revoked = await runnerWithClis(a, "Revoked");
   await a.db.update(runners).set({ revokedAt: new Date() }).where(eq(runners.id, revoked.runnerId));
   await runnerWithClis(b, "Elsewhere");
@@ -70,8 +77,22 @@ test("system › the poll triggers whose latest poll that ended failed, newest f
   await pollTrigger(b.db, b.workspaceId, "elsewhere", [["failed", "elsewhere"]], me);
   const { failingPolls } = await call(router.system.status, undefined, { context: a });
   expect(failingPolls).toEqual([
-    { triggerId: "failing", triggerName: "Trigger failing", agentId: "agent_failing", agentName: "Agent failing", at: new Date(Date.UTC(2026, 10, 1, 10, 2)), message: "second" },
-    { triggerId: "calling", triggerName: "Trigger calling", agentId: "agent_calling", agentName: "Agent calling", at: new Date(Date.UTC(2026, 10, 1, 10, 0)), message: "before the call" },
+    {
+      triggerId: "failing",
+      triggerName: "Trigger failing",
+      agentId: "agent_failing",
+      agentName: "Agent failing",
+      at: new Date(Date.UTC(2026, 10, 1, 10, 2)),
+      message: "second",
+    },
+    {
+      triggerId: "calling",
+      triggerName: "Trigger calling",
+      agentId: "agent_calling",
+      agentName: "Agent calling",
+      at: new Date(Date.UTC(2026, 10, 1, 10, 0)),
+      message: "before the call",
+    },
   ]);
   expect((await call(router.system.status, undefined, { context: b })).failingPolls.map((p) => p.triggerId)).toEqual(["elsewhere"]);
 });

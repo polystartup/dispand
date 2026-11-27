@@ -15,7 +15,8 @@ import { canonicalJson, Concurrency, JOB, RateCap, TriggerConfig, TriggerFields 
 const owner = base.use(member);
 
 /** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
-export const visible = (workspaceId: string, actorId: string) => and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, actorId)));
+export const visible = (workspaceId: string, actorId: string) =>
+  and(eq(agents.workspaceId, workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, actorId)));
 /** The workspace's triggers a person sees: a trigger is its agent's. */
 const inWorkspace = (db: Db | Tx, workspaceId: string, actorId: string) =>
   inArray(triggersTable.agentId, db.select({ id: agents.id }).from(agents).where(visible(workspaceId, actorId)));

@@ -33,7 +33,14 @@ const status = base.use(manager).handler(async ({ context }) => {
     .orderBy(polls.triggerId, desc(polls.at), desc(polls.id))
     .as("latest");
   const failingPolls = await context.db
-    .select({ triggerId: latest.triggerId, triggerName: latest.triggerName, agentId: latest.agentId, agentName: latest.agentName, at: latest.at, message: latest.message })
+    .select({
+      triggerId: latest.triggerId,
+      triggerName: latest.triggerName,
+      agentId: latest.agentId,
+      agentName: latest.agentName,
+      at: latest.at,
+      message: latest.message,
+    })
     .from(latest)
     .where(eq(latest.status, "failed"))
     .orderBy(desc(latest.at), latest.triggerId);
@@ -41,7 +48,13 @@ const status = base.use(manager).handler(async ({ context }) => {
     protocolVersion: PROTOCOL_VERSION,
     // Null: this process runs no scheduler (another may).
     scheduler: since === undefined ? null : { sinceTickMs: since, stale: since > STALE_TICK_MS },
-    runners: (await workspaceRunners(context)).map(({ runner: { id, name, status, lastSeenAt }, protocolVersion }) => ({ id, name, status, protocolVersion, lastSeenAt })),
+    runners: (await workspaceRunners(context)).map(({ runner: { id, name, status, lastSeenAt }, protocolVersion }) => ({
+      id,
+      name,
+      status,
+      protocolVersion,
+      lastSeenAt,
+    })),
     failingPolls,
   };
 });
