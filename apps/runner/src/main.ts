@@ -86,14 +86,14 @@ function findOnPath(name: string): string | undefined {
 }
 
 /**
- * A secret from the environment variable `name`, else typed on stdin after `prompt`, trimmed: never
- * from argv, which another local user could read in `ps`. The variable leaves the environment
- * first, so nothing this process starts inherits it. Empty or unset, it is asked for.
+ * A secret from the environment variable `name`, else (unset) typed on stdin after `prompt`,
+ * trimmed: never from argv, which another local user could read in `ps`. The variable leaves the
+ * environment first, so nothing this process starts inherits it. Set but empty, it is empty.
  */
 async function secretInput(name: string, prompt: string): Promise<string> {
   const given = process.env[name];
   delete process.env[name];
-  if (given) return given.trim();
+  if (given !== undefined) return given.trim();
   const rl = createInterface({ input: process.stdin, output: process.stderr });
   const typed = await rl.question(prompt).catch(() => "");
   rl.close();
