@@ -57,7 +57,7 @@ test("a manager sees the scheduler's last tick, the runners against the server's
   open("manager");
   expect(await screen.findByText("Last tick 12 s ago.")).toBeTruthy();
   expect(screen.getByText("This server speaks runner protocol 41.")).toBeTruthy();
-  expect(screen.getByText("Last reported protocol 40")).toBeTruthy();
+  expect(screen.getByText("Last recorded protocol 40")).toBeTruthy();
   expect(screen.getByText("Never connected")).toBeTruthy();
   expect(screen.getByText("Needs an update")).toBeTruthy();
   expect(screen.getByText("The latest poll of 1 poll trigger failed.")).toBeTruthy();

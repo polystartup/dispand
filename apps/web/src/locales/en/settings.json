@@ -125,7 +125,7 @@
       "title": "Runners",
       "server": "This server speaks runner protocol {{version}}.",
       "none": "This workspace has no runner.",
-      "protocol": "Last reported protocol {{version}}",
+      "protocol": "Last recorded protocol {{version}}",
       "never": "Never connected"
     },
     "polls": {

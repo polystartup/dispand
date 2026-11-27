@@ -32,8 +32,8 @@ function System() {
         <p role="status">{t("loading")}</p>
       ) : (
         <div className="space-y-8">
-          {/* What follows is the last answer: an operator must not read it as live while the server is down. */}
-          {status.isRefetchError && (
+          {/* What follows is the last answer: an operator must not read it as live while the server, or the network, is down. */}
+          {(status.isRefetchError || status.isPaused) && (
             <p role="alert" className="text-[14px] text-danger">
               {t("system.stale", { time: dateTimeSeconds(status.dataUpdatedAt) })}
             </p>

@@ -29,7 +29,7 @@ const create = writer.input(z.object({ name: Name })).handler(async ({ input, co
 /**
  * The workspace's live runners, each with its status as this process's hub sees it: online,
  * outdated (too old to connect, with the command that updates it) or offline, and the protocol it
- * last reported (null if it never did). Only the workspace's own runners are asked about.
+ * last connected with or was refused for as too old (null if neither). Only the workspace's own runners are asked about.
  */
 export async function workspaceRunners(context: { db: Db; hub: RunnerHub; auth: Auth; access: { workspaceId: string } }) {
   const rows = await context.db
