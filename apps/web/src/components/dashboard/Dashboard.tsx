@@ -90,7 +90,7 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
           {widgets.map((w) => (
             <div key={w.id}>
               {/* One widget's render error shows in its own box, not as a blank page. */}
-              <CatchBoundary getResetKey={() => w.id} errorComponent={({ reset }) => <WidgetFailed reset={reset} />}>
+              <CatchBoundary getResetKey={() => w.id} errorComponent={WidgetFailed}>
                 {w.type === "grid" ? (
                   <GridWidget widget={w} editing={editing} />
                 ) : w.type === "table" ? (
@@ -109,6 +109,7 @@ export function Dashboard({ pageId, widgets, editing }: Props) {
   );
 }
 
+// A named component, not an inline one: a new type on every render would remount it and drop focus from its button.
 function WidgetFailed({ reset }: { reset: () => void }) {
   const { t } = useTranslation(["dashboard", "common"]);
   return (
