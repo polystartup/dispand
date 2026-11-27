@@ -1208,7 +1208,7 @@ changes it updates this file.
   A cloud session opens the key at each model call and holds it only for that call: no
   `cloud_sessions` row, event, step error or log carries it, and a failed call ends the step
   with a short reason (refused key, rate limit, status code, unreachable host), never the
-  provider's body. A cloud agent's tool calls (other than `ask_user` and `submit_outputs`, which
+  provider's body, once a transient failure has been retried within bounds (`retryDelay`). A cloud agent's tool calls (other than `ask_user` and `submit_outputs`, which
   Dispand answers itself) each need the owner's approval, shown whole, but for the actions the
   agent lets run unasked (above). The owner may remember a decision for the run or, when offered,
   for the agent's future runs. The engine stores it from the server-resolved tool key; no cloud

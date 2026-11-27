@@ -55,7 +55,8 @@ export async function startFakeModel(model: string): Promise<FakeModel> {
         }
         const step = req.method === "POST" && req.url === "/v1/chat/completions" ? steps.shift() : undefined;
         if (!step) {
-          res.writeHead(500, { "content-type": "application/json" });
+          // A client error: the runner retries a 5xx (`retryDelay`), and no turn will come.
+          res.writeHead(400, { "content-type": "application/json" });
           return res.end(JSON.stringify({ error: { message: "no turn left" } }));
         }
         const messages = (JSON.parse(body) as { messages: ChatMessage[] }).messages;

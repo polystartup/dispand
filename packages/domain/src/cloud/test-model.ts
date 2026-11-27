@@ -13,7 +13,7 @@ export function fakeModel(...script: Script[]) {
       async turn(input: TurnInput): Promise<ModelTurn> {
         inputs.push({ ...input, items: structuredClone(input.items) });
         const next = script.shift();
-        if (!next) throw Object.assign(new Error("no turn left"), { status: 500 });
+        if (!next) throw Object.assign(new Error("no turn left"), { status: 400 });
         const t = await next(input);
         if (t.text) input.onText(t.text);
         const toolCalls = t.toolCalls ?? [];

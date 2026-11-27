@@ -15,7 +15,8 @@ import { ownerContext, runEnded, whenRun } from "../runners/test-support.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { writeMemory } from "../memory/store.ts";
 import { TEXTS } from "./builtins.ts";
-import { createModelClient } from "./clients.ts";
+import { createModelClient, MAX_RETRY_WAIT_MS, MODEL_RETRIES } from "./clients.ts";
+import { fixture } from "./fake-fetch.ts";
 import type { ChatItem } from "./model-client.ts";
 import { fakeModel, say, use, type Script } from "./test-model.ts";
 import { CloudRunner, textStream, type ToolCaller } from "./runner.ts";
@@ -846,6 +847,55 @@ test("a provider error fails the step with a short message", async () => {
     run,
   ]);
   expect(dump).not.toContain(key);
+});
+
+/** A `fetch` that answers each model call with the next status (its `retry-after-ms` as given), then with a streamed answer. */
+function busyProvider(...answers: ({ status: number; wait?: string } | "answer")[]) {
+  const calls: number[] = [];
+  const fetch = (async () => {
+    const next = answers.shift() ?? "answer";
+    calls.push(next === "answer" ? 200 : next.status);
+    if (next === "answer") return new Response(fixture("chat-end.sse"), { status: 200, headers: { "content-type": "text/event-stream" } });
+    return new Response(JSON.stringify({ error: { message: "busy" } }), {
+      status: next.status,
+      headers: { "content-type": "application/json", ...(next.wait === undefined ? {} : { "retry-after-ms": next.wait }) },
+    });
+  }) as typeof globalThis.fetch;
+  return { fetch, calls };
+}
+
+test("a model call the provider turns away for a while is made again once it says, on the same transcript", async () => {
+  const provider = busyProvider({ status: 429, wait: "1" }, { status: 503, wait: "1" }, { status: 529, wait: "1" }, "answer");
+  const { engine, workflow } = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: provider.fetch }) });
+  const runId = await engine.startRun(workflow.id);
+  await until(engine, runId, "succeeded");
+  expect(provider.calls).toEqual([429, 503, 529, 200]);
+  expect((await stepOf(engine, runId, "n_note")).outputs).toEqual({ result: "Done." });
+});
+
+test("a model call still turned away after its retries fails the step, as does one asked to wait too long", async () => {
+  const busy = busyProvider(...Array.from({ length: MODEL_RETRIES + 1 }, () => ({ status: 429, wait: "1" })));
+  const first = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: busy.fetch }) });
+  const run = await until(first.engine, await first.engine.startRun(first.workflow.id), "failed");
+  expect(run.error).toBe(stored("cloud.fail.rateLimited"));
+  expect(busy.calls).toHaveLength(MODEL_RETRIES + 1);
+
+  const later = busyProvider({ status: 503, wait: String(MAX_RETRY_WAIT_MS + 1) });
+  const second = await setup(buttonStep, { client: (h) => createModelClient(h, { fetch: later.fetch }) });
+  const refused = await until(second.engine, await second.engine.startRun(second.workflow.id), "failed");
+  expect(refused.error).toBe(stored("cloud.fail.providerError", { status: 503 }));
+  expect(later.calls).toEqual([503]);
+});
+
+test("a model call that fails once its answer began to stream isn't made again", async () => {
+  const model = fakeModel((input) => {
+    input.onText("Half an ans");
+    throw Object.assign(new Error("cut"), { status: 503 });
+  }, say("never"));
+  const { engine, workflow } = await setup(buttonStep, { client: model.client });
+  const run = await until(engine, await engine.startRun(workflow.id), "failed");
+  expect(run.error).toBe(stored("cloud.fail.providerError", { status: 503 }));
+  expect(model.inputs).toHaveLength(1);
 });
 
 test("the agent's model overrides the harness's for cloud sessions", async () => {
