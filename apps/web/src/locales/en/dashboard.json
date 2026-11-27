@@ -95,5 +95,6 @@
     "succeeded": "Last run: done",
     "failed": "Last run: failed",
     "failedWith": "Last run: failed: {{error}}"
-  }
+  },
+  "widgetFailed": "This widget failed to load."
 }

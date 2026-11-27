@@ -38,5 +38,13 @@
     "hours": "{{hours}} h {{minutes}} min",
     "minutes": "{{minutes}} min {{seconds}} s",
     "seconds": "{{seconds}} s"
+  },
+  "routeError": {
+    "title": "This page failed to load",
+    "retry": "Try again"
+  },
+  "notFound": {
+    "title": "Page not found",
+    "link": "Back to Home"
   }
 }

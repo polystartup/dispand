@@ -95,5 +95,6 @@
     "succeeded": "Dernière exécution : terminée",
     "failed": "Dernière exécution : échec",
     "failedWith": "Dernière exécution : échec : {{error}}"
-  }
+  },
+  "widgetFailed": "Impossible d’afficher ce widget."
 }
