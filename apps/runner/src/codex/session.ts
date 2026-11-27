@@ -274,6 +274,194 @@ function codexInput(ctx: {
   };
 }
 
+/** What Codex's server requests (approvals, questions, tool calls) are decided with. */
+type RequestContext = {
+  start: CodexSessionStart;
+  cwd: string;
+  deps: CodexDeps;
+  restricted: boolean;
+  bypass: boolean;
+  denied: ReturnType<typeof codexDenied>;
+  tools: ReturnType<typeof toolPolicy>;
+  native: ReturnType<typeof nativePermissions>;
+  ask: ReturnType<typeof ownerQuestions>["ask"];
+  asks: boolean;
+  outcome: ReturnType<typeof sessionOutcome>;
+  state: CodexState;
+  finish: (event: HarnessEvent) => void;
+  fileChanges: Map<string, FileUpdateChange[]>;
+  requestAborts: Map<RequestId, AbortController>;
+};
+
+/** Codex's server requests: each answered within the boundary, its question withdrawn when Codex resolves it or the turn is cut. */
+function codexRequests(ctx: RequestContext) {
+  const { start, ask, finish, native, state, requestAborts } = ctx;
+  /** Command approvals already answered, by item and approval id. */
+  const askedCommands = new Set<string>();
+
+  /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
+  async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
+    const remembers = start.jobToken ? nativeRuleForCall(call) : null;
+    if (remembers) payload.remembers = remembers;
+    if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
+    const answer = await ask(payload, signal);
+    if (answer?.kind === "permission" && answer.remember && answer.decision === "deny") {
+      finish({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
+      return null;
+    }
+    if (remembers) native.remember(remembers, call, answer);
+    return answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
+  }
+
+  return async function onServerRequest(r: ServerRequest): Promise<unknown> {
+    const withdrawn = new AbortController();
+    requestAborts.set(r.id, withdrawn);
+    try {
+      return await handleRequest(r, AbortSignal.any([withdrawn.signal, state.turnAbort.signal]), { ...ctx, approve, askedCommands });
+    } finally {
+      requestAborts.delete(r.id);
+    }
+  };
+}
+
+/** One server request's answer. */
+async function handleRequest(
+  r: ServerRequest,
+  signal: AbortSignal,
+  ctx: RequestContext & {
+    approve: (payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) => Promise<"allow" | "allow-always" | null>;
+    askedCommands: Set<string>;
+  },
+): Promise<unknown> {
+  const { start, cwd, deps, restricted, bypass, denied, tools, native, ask, asks, outcome, state, fileChanges, approve, askedCommands } = ctx;
+  switch (r.method) {
+    case "item/commandExecution/requestApproval": {
+      if (restricted) return { decision: "decline" };
+      const p = r.params;
+      const key = `${p.itemId}/${p.approvalId ?? ""}`;
+      // A second approval for one command is Codex offering to run it again outside the sandbox
+      // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
+      const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
+      if (extra) return { decision: "decline" };
+      const call = {
+        cli: "codex" as const,
+        tool: "Shell",
+        command: p.command ?? undefined,
+        proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined,
+        commandActions: p.commandActions ?? undefined,
+      };
+      const saved = native.decision(call);
+      if (saved === "deny") return { decision: "decline" };
+      if (bypass) return { decision: "accept" };
+      if (askedCommands.has(key)) return { decision: "decline" };
+      // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
+      if (p.kind !== "command" || !p.command) return { decision: "decline" };
+      askedCommands.add(key);
+      if (saved === "allow") return { decision: "accept" };
+      const input = { command: p.command, cwd: p.cwd ?? "", reason: p.reason ?? "" };
+      const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal, call);
+      // Never an execpolicy or network amendment: they persist rules beyond the session.
+      return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
+    }
+    case "item/fileChange/requestApproval": {
+      if (restricted) return { decision: "decline" };
+      const changes = fileChanges.get(r.params.itemId) ?? [];
+      const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
+      if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
+      const call = { cli: "codex" as const, tool: "FileChange" };
+      const saved = native.decision(call);
+      if (saved === "deny") return { decision: "decline" };
+      if (bypass) return { decision: "accept" };
+      if (saved === "allow") return { decision: "accept" };
+      const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
+      // Each change asks: "for the session" could let later changes skip this check.
+      const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal, call);
+      return { decision: decision ? "accept" : "decline" };
+    }
+    case "item/permissions/requestApproval":
+      // More permissions widen the boundary: none is granted, and the owner isn't asked.
+      return { permissions: {}, scope: "turn" };
+    case "item/tool/requestUserInput": {
+      const asked = r.params.questions;
+      // A secret never goes through Dispand; a restricted session asks nobody.
+      if (restricted || asked.some((q) => q.isSecret)) return { answers: {} };
+      const shown = asked.map((q) => ({
+        question: q.question,
+        header: q.header,
+        options: [...(q.options ?? []).map((o) => ({ label: o.label, description: o.description })), ...(q.isOther ? [{ label: "Other" }] : [])],
+        multiSelect: false,
+      }));
+      const chosen = await askChoices(ask, shown, signal);
+      if (chosen === null || chosen === "indistinct") return { answers: {} };
+      const answers: Record<string, { answers: string[] }> = {};
+      asked.forEach((q, i) => {
+        const a = chosen[i];
+        if (a !== undefined) answers[q.id] = { answers: a };
+      });
+      return { answers };
+    }
+    case "mcpServer/elicitation/request": {
+      const p = r.params;
+      const decline = { action: "decline" as const, content: null, _meta: null };
+      const meta = isObject(p._meta) ? p._meta : {};
+      // Codex asks before each MCP tool call with an elicitation of no fields: it becomes a
+      // permission question, as on Claude Code. Any other elicitation collects nothing.
+      if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
+      const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
+      if (restricted && p.serverName !== deps.jobServer) return decline;
+      // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
+      const input = isObject(meta.tool_params) ? meta.tool_params : {};
+      const decision = await tools.decide({ name: `mcp__${p.serverName}__${tool}`, server: p.serverName, input }, ask, signal);
+      return decision.allow ? { action: "accept" as const, content: {}, _meta: null } : decline;
+    }
+    case "item/tool/call": {
+      const p = r.params;
+      // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
+      const own = deps.sessionTools;
+      if (own && p.namespace !== null && p.threadId === state.threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
+        const input = isObject(p.arguments) ? p.arguments : {};
+        const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
+        if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
+        try {
+          const result = await own.call(p.namespace, p.tool, input, signal);
+          const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
+            c.type === "image" && c.data
+              ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` }
+              : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` },
+          );
+          return { contentItems, success: result.isError !== true };
+        } catch {
+          // Not the server's words: they may quote a credential it echoed.
+          return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
+        }
+      }
+      if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
+      if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === state.threadId) {
+        const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+        const outcome = await requestApproval(ask, asked, signal);
+        return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+      }
+      // We decided a subagent asks the agent that started it, which decides whether to ask the person.
+      if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
+        return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
+      }
+      // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
+      if (p.tool === ASK && asks && p.namespace === null && p.threadId === state.threadId) {
+        const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
+        const outcome = await askTool(ask, asked, start, signal);
+        return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
+      }
+      if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== state.threadId) {
+        return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
+      }
+      const args = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? p.arguments : {};
+      return { contentItems: [{ type: "inputText", text: await outcome.submit(args, signal) }], success: true };
+    }
+    default:
+      throw new Error(`${r.method} is not handled by dispand-runner`);
+  }
+}
+
 /**
  * Runs one Codex session: `codex app-server` in the run folder, with the `dispand` permission
  * profile (`config.ts`) and approval policy `untrusted`. Approvals and the agent's questions
@@ -310,8 +498,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   const fileChanges = new Map<string, FileUpdateChange[]>();
   /** Questions about server requests, withdrawn when Codex resolves the request itself. */
   const requestAborts = new Map<RequestId, AbortController>();
-  /** Command approvals already answered, by item and approval id. */
-  const askedCommands = new Set<string>();
 
   function finish(event: HarnessEvent) {
     try {
@@ -326,6 +512,23 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
   }
 
   const outcome = sessionOutcome(start, { emit, ask, finish, say: input.say });
+  const requests = codexRequests({
+    start,
+    cwd,
+    deps,
+    restricted,
+    bypass,
+    denied,
+    tools,
+    native,
+    ask,
+    asks,
+    outcome,
+    state,
+    finish,
+    fileChanges,
+    requestAborts,
+  });
 
   /** The running turn's id, from `turn/start`'s reply or `turn/started`: an interrupt asked before it was known is sent now. */
   function learnTurn(id: string) {
@@ -386,159 +589,6 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
     }
   }
 
-  /** Asks a permission question, unless the owner couldn't see it whole: null then, as when it is withdrawn or denied. */
-  async function approve(payload: Extract<QuestionPayload, { kind: "permission" }>, signal: AbortSignal, call: CliRuleCall) {
-    const remembers = start.jobToken ? nativeRuleForCall(call) : null;
-    if (remembers) payload.remembers = remembers;
-    if (!fitsWhole({ type: "question", questionId: "", payload })) return null;
-    const answer = await ask(payload, signal);
-    if (answer?.kind === "permission" && answer.remember && answer.decision === "deny") {
-      finish({ type: "error", message: CODEX_DENIAL_UNSUPPORTED });
-      return null;
-    }
-    if (remembers) native.remember(remembers, call, answer);
-    return answer?.kind === "permission" && answer.decision !== "deny" ? answer.decision : null;
-  }
-
-  async function handle(r: ServerRequest, signal: AbortSignal): Promise<unknown> {
-    switch (r.method) {
-      case "item/commandExecution/requestApproval": {
-        if (restricted) return { decision: "decline" };
-        const p = r.params;
-        const key = `${p.itemId}/${p.approvalId ?? ""}`;
-        // A second approval for one command is Codex offering to run it again outside the sandbox
-        // ("retry without sandbox?"); additional permissions widen the profile: neither is asked.
-        const extra = p.additionalPermissions && (p.additionalPermissions.network || p.additionalPermissions.fileSystem);
-        if (extra) return { decision: "decline" };
-        const call = {
-          cli: "codex" as const,
-          tool: "Shell",
-          command: p.command ?? undefined,
-          proposedExecpolicyAmendment: p.proposedExecpolicyAmendment ?? undefined,
-          commandActions: p.commandActions ?? undefined,
-        };
-        const saved = native.decision(call);
-        if (saved === "deny") return { decision: "decline" };
-        if (bypass) return { decision: "accept" };
-        if (askedCommands.has(key)) return { decision: "decline" };
-        // The owner approves only what they see: input for a running terminal (`writeStdin`) or a command Codex doesn't name.
-        if (p.kind !== "command" || !p.command) return { decision: "decline" };
-        askedCommands.add(key);
-        if (saved === "allow") return { decision: "accept" };
-        const input = { command: p.command, cwd: p.cwd ?? "", reason: p.reason ?? "" };
-        const decision = await approve({ kind: "permission", toolName: "Shell", input, canAlwaysAllow: true }, signal, call);
-        // Never an execpolicy or network amendment: they persist rules beyond the session.
-        return { decision: decision === "allow-always" ? "acceptForSession" : decision === "allow" ? "accept" : "decline" };
-      }
-      case "item/fileChange/requestApproval": {
-        if (restricted) return { decision: "decline" };
-        const changes = fileChanges.get(r.params.itemId) ?? [];
-        const paths = changes.flatMap((c) => [c.path, ...(c.kind.type === "update" && c.kind.move_path ? [c.kind.move_path] : [])]);
-        if (paths.length === 0 || paths.some((path) => codexDeniedEdit(cwd, path, denied))) return { decision: "decline" };
-        const call = { cli: "codex" as const, tool: "FileChange" };
-        const saved = native.decision(call);
-        if (saved === "deny") return { decision: "decline" };
-        if (bypass) return { decision: "accept" };
-        if (saved === "allow") return { decision: "accept" };
-        const input = { changes: changes.map((c) => ({ path: c.path, kind: c.kind, diff: c.diff })), reason: r.params.reason ?? "" };
-        // Each change asks: "for the session" could let later changes skip this check.
-        const decision = await approve({ kind: "permission", toolName: "FileChange", input, canAlwaysAllow: false }, signal, call);
-        return { decision: decision ? "accept" : "decline" };
-      }
-      case "item/permissions/requestApproval":
-        // More permissions widen the boundary: none is granted, and the owner isn't asked.
-        return { permissions: {}, scope: "turn" };
-      case "item/tool/requestUserInput": {
-        const asked = r.params.questions;
-        // A secret never goes through Dispand; a restricted session asks nobody.
-        if (restricted || asked.some((q) => q.isSecret)) return { answers: {} };
-        const shown = asked.map((q) => ({
-          question: q.question,
-          header: q.header,
-          options: [...(q.options ?? []).map((o) => ({ label: o.label, description: o.description })), ...(q.isOther ? [{ label: "Other" }] : [])],
-          multiSelect: false,
-        }));
-        const chosen = await askChoices(ask, shown, signal);
-        if (chosen === null || chosen === "indistinct") return { answers: {} };
-        const answers: Record<string, { answers: string[] }> = {};
-        asked.forEach((q, i) => {
-          const a = chosen[i];
-          if (a !== undefined) answers[q.id] = { answers: a };
-        });
-        return { answers };
-      }
-      case "mcpServer/elicitation/request": {
-        const p = r.params;
-        const decline = { action: "decline" as const, content: null, _meta: null };
-        const meta = isObject(p._meta) ? p._meta : {};
-        // Codex asks before each MCP tool call with an elicitation of no fields: it becomes a
-        // permission question, as on Claude Code. Any other elicitation collects nothing.
-        if (p.mode !== "form" || meta.codex_approval_kind !== "mcp_tool_call" || Object.keys(p.requestedSchema.properties).length > 0) return decline;
-        const tool = typeof meta.tool_name === "string" ? meta.tool_name : "";
-        if (restricted && p.serverName !== deps.jobServer) return decline;
-        // Each call asks: Codex's "for the session" and "always" would persist beyond what the owner sees.
-        const input = isObject(meta.tool_params) ? meta.tool_params : {};
-        const decision = await tools.decide({ name: `mcp__${p.serverName}__${tool}`, server: p.serverName, input }, ask, signal);
-        return decision.allow ? { action: "accept" as const, content: {}, _meta: null } : decline;
-      }
-      case "item/tool/call": {
-        const p = r.params;
-        // A sandboxed session's tool: asked about as an MCP call, run by the supervisor only once allowed.
-        const own = deps.sessionTools;
-        if (own && p.namespace !== null && p.threadId === state.threadId && own.has(p.namespace, p.tool) && (!restricted || p.namespace === deps.jobServer)) {
-          const input = isObject(p.arguments) ? p.arguments : {};
-          const decision = await tools.decide({ name: `mcp__${p.namespace}__${p.tool}`, server: p.namespace, input }, ask, signal);
-          if (!decision.allow) return { contentItems: [{ type: "inputText", text: TOOL_CALL_DENIED }], success: false };
-          try {
-            const result = await own.call(p.namespace, p.tool, input, signal);
-            const contentItems = (result.content as { type: string; text?: string; data?: string; mimeType?: string }[]).map((c) =>
-              c.type === "image" && c.data
-                ? { type: "inputImage" as const, imageUrl: `data:${c.mimeType ?? "image/png"};base64,${c.data}` }
-                : { type: "inputText" as const, text: c.type === "text" ? (c.text ?? "") : `[${c.type}]` },
-            );
-            return { contentItems, success: result.isError !== true };
-          } catch {
-            // Not the server's words: they may quote a credential it echoed.
-            return { contentItems: [{ type: "inputText", text: "the tool call failed" }], success: false };
-          }
-        }
-        if (restricted && p.tool !== SUBMIT_OUTPUTS) return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
-        if (p.tool === REQUEST_APPROVAL && p.namespace === null && p.threadId === state.threadId) {
-          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await requestApproval(ask, asked, signal);
-          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
-        }
-        // We decided a subagent asks the agent that started it, which decides whether to ask the person.
-        if (p.tool === REQUEST_APPROVAL && p.namespace === null) {
-          return { contentItems: [{ type: "inputText", text: SUBAGENT_ASKS_PARENT }], success: false };
-        }
-        // Dispand answers it (an agent's Job, or a person): the owner isn't asked about calling it.
-        if (p.tool === ASK && asks && p.namespace === null && p.threadId === state.threadId) {
-          const asked = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? (p.arguments as Record<string, unknown>) : {};
-          const outcome = await askTool(ask, asked, start, signal);
-          return { contentItems: [{ type: "inputText", text: outcome.text }], success: outcome.ok };
-        }
-        if (p.tool !== SUBMIT_OUTPUTS || p.namespace !== null || p.threadId !== state.threadId) {
-          return { contentItems: [{ type: "inputText", text: `unknown tool ${p.tool}` }], success: false };
-        }
-        const args = typeof p.arguments === "object" && p.arguments !== null && !Array.isArray(p.arguments) ? p.arguments : {};
-        return { contentItems: [{ type: "inputText", text: await outcome.submit(args, signal) }], success: true };
-      }
-      default:
-        throw new Error(`${r.method} is not handled by dispand-runner`);
-    }
-  }
-
-  async function onServerRequest(r: ServerRequest): Promise<unknown> {
-    const withdrawn = new AbortController();
-    requestAborts.set(r.id, withdrawn);
-    try {
-      return await handle(r, AbortSignal.any([withdrawn.signal, state.turnAbort.signal]));
-    } finally {
-      requestAborts.delete(r.id);
-    }
-  }
-
   const done = (async () => {
     try {
       const codex = await CodexRpc.spawn(deps.codexPath, { ...(deps.env ?? process.env), ...deps.mcp?.env }, cwd, stopCodex.signal, deps.launch);
@@ -563,7 +613,7 @@ export function startCodexSession(start: CodexSessionStart, cwd: string, session
           }
         }
       });
-      codex.onServerRequest(onServerRequest);
+      codex.onServerRequest(requests);
       // In the thread's own config, which nothing in the worker can rewrite: each native plugin's tools ask.
       const nativePrompts =
         deps.nativePlugins?.names.length && !restricted
