@@ -7,10 +7,6 @@ import { isAttachmentPath, isMemoryPath } from "./paths.ts";
 import { MAX_CLI_RULE_LENGTH } from "./rules.ts";
 import { Grant, SubscriptionRunnerToServer, SubscriptionServerToRunner, SubscriptionStatus } from "./subscriptions.ts";
 
-/**
- * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
- * change a runner of the previous version can't parse or honor; the hub turns older runners away.
- */
 export const HarnessModels = z.array(z.object({ id: string(100).min(1), label: short().min(1) })).max(500);
 
 export const HarnessCommands = z.array(z.object({
@@ -20,7 +16,16 @@ export const HarnessCommands = z.array(z.object({
 })).max(1000);
 export type HarnessCommand = z.infer<typeof HarnessCommands>[number];
 
+/**
+ * Sent by the runner as the `Dispand-Protocol` header when it connects. Bumped by every
+ * change a runner of the previous version can't parse or honor; the hub turns older runners away.
+ */
 export const PROTOCOL_VERSION = 41;
+/**
+ * The digest `messages.test.ts` computes over the messages' schemas: most changes to them fail that
+ * test until this is set again, so whoever makes one decides here whether the version above goes up.
+ */
+export const PROTOCOL_DIGEST = "sha256:84469c6e507ab810bc89abfa36c7716ca5a456e6fbb85fdae492de89ce7b0e43";
 
 /** A message that isn't valid JSON or doesn't match the protocol. */
 export class ProtocolError extends Error {
