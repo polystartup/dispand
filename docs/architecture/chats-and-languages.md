@@ -185,10 +185,12 @@ same keys.
   returns a `Message`, and what stores one (a skipped poll's reason) keeps it as a stored message
   (`pollProblemText`). The engine's refusals are keyed too (`engine.*`); a checkpoint's Approval
   names its root by kind (`rootKind`), and the page has one whole sentence per kind, and a harness's proposal detail is a
-  keyed message. The errors of the Git, marketplace, skill-site, plugin and tool readers (`GitError`,
-  `MarketplaceError`, `WellKnownError`, `PluginError`, `ToolError`) extend `SayError`: their
-  constructor takes a key and its values, never a sentence, and `say` carries them to the
-  procedure that throws them on. What is stored for a person (a step's or a Job's failure, a
+  keyed message. The errors of the Git, marketplace, skill-site, plugin, tool, skill-package and
+  model-listing readers (`GitError`, `MarketplaceError`, `WellKnownError`, `PluginError`,
+  `ToolError`, `PackageError`, `ModelListError`) extend `SayError`: their constructor takes a key
+  and its values, never a sentence, and `say` carries them. One leaving a procedure answers with
+  its `code` (`BAD_REQUEST` unless its class says otherwise) and that message: the base middleware
+  maps it (`rpc/context.ts`), so no call site does. What is stored for a person (a step's or a Job's failure, a
   fire's or a poll item's reason, a tool's `actionsError`, a marketplace's `syncError`) is a
   stored message: the key and values as JSON in the same text column (`stored(key, values)`),
   which the page renders in its language (`useStored()`, `storedText`). A row written before
