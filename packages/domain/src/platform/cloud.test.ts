@@ -1,13 +1,13 @@
 import { call } from "@orpc/server";
 import { eq } from "drizzle-orm";
-import { expect, onTestFinished, test, vi } from "vitest";
+import { expect, test, vi } from "vitest";
 import type { ChatItem } from "../cloud/model-client.ts";
 import type { ToolCaller } from "../cloud/runner.ts";
 import { fakeModel, say, use, type Script } from "../cloud/test-model.ts";
 import { audit, messages, questions, runs, stepRuns } from "../db/schema.ts";
 import { createEngine } from "../engine/cli-harness.ts";
 import { router } from "../rpc/router.ts";
-import { ownerContext, pendingQuestion, runEnded, whenRun } from "../runners/test-support.ts";
+import { ownerContext, pendingQuestion, runEnded, stopsBeforeEmptied, whenRun } from "../runners/test-support.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import { listMemory } from "../memory/store.ts";
 import type { Bundle } from "./bundles.ts";
@@ -18,7 +18,7 @@ async function setup(bundles: Bundle[], script: Script[], tools?: ToolCaller, se
   const base = await ownerContext();
   const model = fakeModel(...script);
   const engine = createEngine(base.db, base.hub, base.secrets, base.dataEvents, { tools: tools ?? platformToolCaller(() => context), client: model.client });
-  onTestFinished(() => engine.stop());
+  stopsBeforeEmptied(() => engine.stop());
   const context = { ...base, engine };
   const harness = await call(
     router.harnesses.create,
