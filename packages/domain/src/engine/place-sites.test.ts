@@ -142,7 +142,7 @@ function sites(unclaimed: string[]): Site[] {
       .filter((h) => h.startsWith(`${file}#`))
       .flatMap((h) => {
         // Any `this.<holder>(` of the file, as the old regex took it, whichever class it is in.
-        const member = h.split(".").at(-1)!;
+        const member = h.split(".").at(-1)!.split(" ").at(-1)!; // `Engine.static dispatch` is called as `this.dispatch(`
         return callsOf(
           file,
           (c) => c.names.length === 1 && c.names[0] === member,
@@ -175,7 +175,7 @@ test("every adapter and cloud runner call site is classified", () => {
     const { source } = SOURCES.find((s) => s.file === site.file)!;
     const fn = owner(site.at)!.node;
     const asked = match(source, ["this", ".", "gate"]).some(([self]) => owner(self!)?.node === fn && self!.getStart() < site.at.getStart());
-    const members = gated.filter((g) => g.startsWith(`${site.file}#`)).map((g) => g.split(".").at(-1)!);
+    const members = gated.filter((g) => g.startsWith(`${site.file}#`)).map((g) => g.split(".").at(-1)!.split(" ").at(-1)!);
     const inside = match(source, ["this", ".", members, "("]).some(([self, , , open]) => {
       const call = open!.parent;
       return (
