@@ -22,7 +22,7 @@ Keep both true: a change to the security model updates `SECURITY.md` or `docs/se
 - anyone who can reach the app without signing in, and a signed-in person outside the workspace or organization;
 - a member of a workspace, a manager and the organization's owner, each trying to go past their role;
 - the authors of what agents read: mail, tool results, table rows, plugin and skill files, memory;
-- the services Dispand calls, and a paired runner trying to reach more than its sessions were given.
+- the services Dispand calls, and a paired runner trying to reach more than its token and sessions give it.
 
 **Not defended against:** an operator with access to the host, its database or the server's
 environment, and what a runner does with the sessions it is given: their content and the work done
