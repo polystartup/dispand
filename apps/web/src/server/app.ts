@@ -6,11 +6,13 @@ import {
   createEngine,
   createMcpConnector,
   createSecretBox,
+  DatabaseLocked,
   DataEvents,
   ensureAssistants,
   guardedFetch,
   inScope,
   InstalledTools,
+  lockDatabase,
   logError,
   ownAddresses,
   platformToolCaller,
@@ -28,6 +30,7 @@ import {
   syncPlatformSkills,
   SYSTEM,
   type Auth,
+  type DatabaseLock,
   type Db,
   type Engine,
   type PlaceGate,
@@ -62,6 +65,8 @@ export type App = {
 };
 
 const SWEEP_EVERY_MS = 3600_000;
+/** How long `startOwnApp` waits before trying a failed start again. */
+const START_RETRY_MS = 5_000;
 /** The hour of the server's clock the purge runs at, once a day. */
 const PURGE_HOUR = 3;
 
@@ -87,7 +92,7 @@ export type BuildOptions = {
   runnerAdmission?: RunnerAdmission;
 };
 
-const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App> };
+const globalForApp = globalThis as { __dispandApp?: Promise<App>; __dispandBuilt?: Promise<App>; __dispandLock?: Promise<DatabaseLock> };
 
 /**
  * The app around an open, migrated database: auth, the runner hub, the engine, the scheduler and
@@ -186,6 +191,14 @@ async function start(): Promise<App> {
   const config = loadServerConfig();
   // First: what starts below is traced. Logs go to the output; OTLP only where OTEL_EXPORTER_OTLP_* says.
   startTelemetry();
+  // Before anything migrates: one process per database runs the engine. Taken once, kept by a
+  // start that fails after it, released by `closeApp`. Once it is lost with its connection, no start
+  // runs on it.
+  const lock = await (globalForApp.__dispandLock ??= lockDatabase(config.databaseUrl).catch((error: unknown) => {
+    delete globalForApp.__dispandLock;
+    throw error;
+  }));
+  if (lock.refusal) throw lock.refusal;
   // Built once per process: a retry after a failed start reruns only `startApp`, on the same engine,
   // so a cloud session the failed start's recovery took up never gets a second driver.
   const app = await (globalForApp.__dispandBuilt ??= createDb(config.databaseUrl)
@@ -194,20 +207,62 @@ async function start(): Promise<App> {
       delete globalForApp.__dispandBuilt;
       throw error;
     }));
+  // Refused while it migrated: nothing recovers or starts.
+  if (lock.refusal) throw lock.refusal;
   await startApp(app);
   return app;
 }
 
 /**
  * The app the routes and the runner hub use: the one `setApp` supplied, else this server's own,
- * opened, migrated and built once per process, then started. A failed start is retried on the next
- * call, on the same built app.
+ * its database held for this process (`lockDatabase`), opened, migrated and built once per
+ * process, then started. A failed start is retried on the next call, on the same lock and built app.
  */
 export function getApp(): Promise<App> {
   return (globalForApp.__dispandApp ??= start().catch((error: unknown) => {
     delete globalForApp.__dispandApp;
     throw error;
   }));
+}
+
+/**
+ * `serve`'s own app, started now rather than at the first request: a start that fails is tried
+ * again every 5 s (and by any request meanwhile). `stop` ends the process at once, without waiting
+ * for telemetry's export, as soon as this one may not run the engine: another process holds the database at boot, or
+ * this one's lock was lost with its connection, whether the app runs, starts or waits to
+ * start again.
+ */
+export async function startOwnApp(stop: () => void): Promise<void> {
+  let stopped = false;
+  const refuse = (refusal: DatabaseLocked) => {
+    if (stopped) return;
+    stopped = true;
+    logError("another Dispand process runs on this database: this one stops", refusal);
+    // At once, without waiting for telemetry's export: another process may hold the lock already
+    // while this one's engine still writes. The line above is in the output all the same.
+    stop();
+  };
+  let watched: Promise<DatabaseLock> | undefined;
+  for (;;) {
+    const started = getApp();
+    // The lock that start holds or takes, watched once: refused, it stops the process at once.
+    if (globalForApp.__dispandLock !== watched) {
+      watched = globalForApp.__dispandLock;
+      void watched?.then(
+        (lock) => lock.refused.then(refuse),
+        () => {},
+      );
+    }
+    try {
+      await started;
+      return;
+    } catch (error) {
+      // At boot, or since its lock was lost (`start` then refuses every start).
+      if (error instanceof DatabaseLocked) return refuse(error);
+      logError("app.start failed", error);
+      await new Promise((resolve) => setTimeout(resolve, START_RETRY_MS));
+    }
+  }
 }
 
 /**
@@ -224,7 +279,7 @@ export async function closeHub(): Promise<void> {
   await app?.hub.close();
 }
 
-/** Closes the database if the app was started, so a stopped server exits at once. */
+/** Closes the database and releases its lock if the app was started, so a stopped server exits at once. */
 export async function closeApp(): Promise<void> {
   const app = await globalForApp.__dispandApp?.catch(() => undefined);
   if (!app) return;
@@ -232,6 +287,8 @@ export async function closeApp(): Promise<void> {
   await app.scheduler.stop();
   await app.engine.stop();
   await closeDb(app.db);
+  // Once nothing of this engine writes: another process may take the database then.
+  await (await globalForApp.__dispandLock?.catch(() => undefined))?.release();
   // What is still buffered goes before the process ends.
   await stopTelemetry();
 }

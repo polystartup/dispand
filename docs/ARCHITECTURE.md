@@ -1174,7 +1174,9 @@
   client it opens (a database adapter's pool that already listens keeps its own listener), logs
   and counts an idle one's loss by kind (`dispand.db.connections.lost`), and fails only the
   statement that was using it; the pool opens another connection on the next query
-  (`db/connection-loss.test.ts` lists the files that load node-postgres). Local Postgres: `compose.dev.yaml`. Text sorts in
+  (`db/connection-loss.test.ts` lists the files that load node-postgres). The database lock of the
+  server's own start (`lockDatabase`, App startup) is the one connection outside a pool: it listens
+  for `error` too, logs a loss once (`database lock lost`), and the process ends (App startup). Local Postgres: `compose.dev.yaml`. Text sorts in
   code-point order everywhere: PGlite's collation is `C`, and both compose files initialize
   Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
   (migration 0133), so a time reads the same whatever the zones of Node and of the database
@@ -1926,6 +1928,12 @@
   otherwise. All are read from the environment; `deploy/compose.yaml` fills them from the
   `DISPAND_*` variables listed in `deploy/README.md`. `/api/rpc` demands the oRPC CSRF header (`x-csrf-token: orpc`, added by the client
   link), which cross-origin forms cannot send.
+- **Class names:** the design tokens are Tailwind classes through `tokens.css`'s `@theme`
+  (`src/styles.css` is Tailwind's entry). A class name Tailwind doesn't know, in a `className`,
+  a `cn()` or `cva()` call or a variable named `className`, fails lint
+  (`better-tailwindcss/no-unknown-classes`); one kept in another constant isn't checked.
+  `eslint.config.js` lists the few it allows (plain CSS of `styles.css`, and the names React
+  Flow and the dashboard's drag handle look for).
 - **Build and migrations:** the web build leaves `@dispand/domain` external (its message
   catalogs apart), so an entry that imports both gets one domain module, and the domain finds
   its own migrations and skill files. It runs from the domain's packed form (compiled `dist`):
@@ -1946,20 +1954,41 @@
   request bodies capped at 1 MiB, 11 MiB for `/api/rpc/files/upload`, `/api/rpc/skills/create`
   and `/api/rpc/skills/update` (413 when announced larger, 411 without a length), the runner
   hub's upgrade, and on SIGINT/SIGTERM the runners' sockets, the server, then the app closed.
+  Without an app given, it starts its own right after listening (`startOwnApp`), not at the first
+  request: the migrations, recovery and the scheduler run at boot, and a start that fails (the
+  database not up yet) is tried again every 5 s, and by any request meanwhile. When another process
+  holds the database (`DatabaseLocked`: at boot, or once this one's lock is lost with its
+  connection, as another may take it then), it logs `another Dispand process runs on this database: this
+  one stops` and exits at once with code 1, whether its app runs, starts or waits to start again,
+  for its supervisor to start it again: a graceful stop would wait for work its engine goes on
+  with meanwhile.
   The hub and the routes share one `getApp()`. In dev, `vite-plugin-hub.ts` hands `/runner/ws` upgrades on
   Vite's server to the same hub.
 - **App startup** (`src/server/app.ts`): `buildApp(db, config)` constructs the app around an
   open, migrated database (auth, the hub, the engine, the scheduler, the push sender, one of each
   per app) without starting anything; `startApp(app)` then syncs the platform skills, ensures the
   Assistants, reseals tool headers, settles overdue idle chats, recovers the engine, starts the scheduler, the hourly sweep
-  and the push sender, in that order. `getApp()` opens and migrates `DATABASE_URL`, then builds
-  and starts once per process; a failed start is retried on the same built app, so its engine
-  stays the one driving the cloud sessions its recovery took up. Another entry with its own
+  and the push sender, in that order. `getApp()` first holds `DATABASE_URL`'s database for the
+  process (`lockDatabase`, `db/client.ts`): a session advisory lock (key 28263442198654564,
+  "dispand" in ASCII, past the 32-bit `hashtext` keys the transaction locks take) on a connection
+  of its own, outside the pool, with `idle_session_timeout` off and TCP keepalive at both ends
+  (PostgreSQL gives up on a silent process within 15 s, the process on a silent server within
+  about 20 s: a lost host or a failover ends it like a restart, and the lock is free by the time
+  the process's successor starts), so one process per database runs the engine and a second gets
+  `DatabaseLocked` before migrating anything; nothing is taken on PGlite. It then opens and
+  migrates the database, builds and starts once per process; a failed start keeps the lock and is
+  retried on the same built app, so its engine stays the one driving the cloud sessions its
+  recovery took up, and `closeApp` releases the lock once the database is closed. A lock lost
+  with its connection (a PostgreSQL restart, `pg_terminate_backend`, a silent server) isn't taken
+  again: another process may hold it at once while this one's engine still writes through its
+  pool, so the lock's `refused` settles (Production entry: the process ends) and from then on a start fails with `DatabaseLocked` (the lock's `refusal`)
+  before it migrates, and again before `startApp`. `buildApp` and `startApp` take no lock: an entry that runs several
+  processes on one database guards them with its `gate` and `runnerAdmission` instead. Another entry with its own
   database and startup starts telemetry (`startTelemetry`) before opening its database, builds
   its app and hands it to `serve` (or `setApp`) before taking requests (`src/server.ts` exports
   them, with `loadServerConfig` and `closeApp`);
-  the routes and the hub then use it. Only the app (started, and built) stays on `globalThis`,
-  so dev reloads reuse it.
+  the routes and the hub then use it. Only the app (started, and built) and its lock stay on
+  `globalThis`, so dev reloads reuse them.
 - **Health** (`GET /api/health`, `src/server/health.ts`): 200 once the app started and the
   database answers and, in a process whose scheduler runs, while a tick completed in the last 5
   minutes (`Scheduler.sinceTick`: a failed tick doesn't count, the poll walks a tick began don't
@@ -2429,7 +2458,11 @@ same keys.
   like JSON, so it never reads as a stored message), or passed as a value of a keyed
   sentence. A tool result for an agent shows every such text as its English sentence
   (`sentence`, a tool's `filter`, `issues` for a refinement's key and its `params`), never a key. An input its Zod schema rejects answers with `validation.<code>` and the
-  field's path and limits (`rpc/context.ts`, `validationKey`). `messages/messages.test.ts` walks
+  field's path and limits (`rpc/context.ts`, `validationKey`); one holding a NUL or a lone surrogate in
+  any string or key, which PostgreSQL can't store, is refused before its schema with
+  `validation.unstorable` and that field's path, and one nested deeper than 1,000 levels with
+  `validation.tooDeep`, its path and the limit (`inputRefusal`, run by `storableInput`, and by
+  `callPlatformTool` for a Job's tool call, which gets the English sentence). `messages/messages.test.ts` walks
   the domain for every `new ORPCError(` and `new EngineError(` and fails on one whose message
   isn't a single `message()` key, external text or an engine error passed on (`passOn(err)`, typed
   `EngineError`, always keyed: its constructor takes a `message()`), and for every saying error

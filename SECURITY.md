@@ -1176,7 +1176,14 @@ changes it updates this file.
   service answers 404 or 410 for is deleted. The page's only worker is its own service worker
   (`worker-src 'self'`, `/sw.js`), which shows every push and opens `/inbox?item=<id>` on a
   click. The push procedures are no tool.
-- **Every input is validated** by its procedure's Zod schema; errors don't leak internals:
+- **Every input is validated** by its procedure's Zod schema, and refused before it and before
+  the gates when any of its strings or keys holds a character PostgreSQL can't store (a NUL, a
+  lone surrogate: `storable`, the runner protocol's rule), with `validation.unstorable` and that
+  field's path, or when it nests deeper than 1,000 levels, which no procedure's input comes near
+  (`validation.tooDeep`): `inputRefusal` (`rpc/context.ts`, run by `storableInput` in `base`, and
+  by `callPlatformTool` before the reads a Job's tool call makes ahead of its procedure) walks it
+  with its own stack of at most that many containers, so no input overflows it or makes it hold
+  more, and none reaches a query; errors don't leak internals:
   anything but an `ORPCError` reaches the page as the generic message (oRPC sends no text, the
   log only `logError`'s summary), and so does an `ORPCError` with no message key (the page shows
   only keyed messages and text marked external), and a server message's values render as text, never markup. Text from outside stored in a failure column goes through `plainText`, so one shaped like JSON can never read as a stored message.

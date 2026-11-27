@@ -144,6 +144,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           maxLength={64}
           pattern="[a-z0-9][a-z0-9\-]*"
           required
+          // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened
           autoFocus={!pkg}
         />
       </FormField>

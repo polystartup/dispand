@@ -9,7 +9,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({
   resolve: { tsconfigPaths: true },
   test: {
-    setupFiles: ["src/test/i18n.ts", "src/test/testing-library.ts"],
+    setupFiles: ["src/test/i18n.ts", "src/test/testing-library.ts", "@dispand/domain/test-wait"],
     testTimeout: 30_000,
     projects: [
       { extends: true, test: { name: "web", include: ["src/**/*.test.{ts,tsx}"], exclude: ["src/**/*.shell.test.{ts,tsx}"] } },

@@ -1,7 +1,19 @@
-import { beforeEach, expect, test, vi } from "vitest";
+import { beforeEach, expect, onTestFinished, test, vi } from "vitest";
 
 const createDb = vi.fn();
 const recover = vi.fn(async () => {});
+const logError = vi.fn();
+// The database lock (`lockDatabase`): held until released; `refuse` sets its `refusal` and settles
+// its `refused`, as when it went to another process while its connection was gone.
+class DatabaseLocked extends Error {}
+let refuse = () => {};
+const lockDatabase = vi.fn(async () => {
+  order.push("lockDatabase");
+  let settle: (refusal: DatabaseLocked) => void = () => {};
+  const lock = { refused: new Promise<DatabaseLocked>((resolve) => (settle = resolve)), refusal: undefined as DatabaseLocked | undefined, release: async () => void order.push("lock.release") };
+  refuse = () => settle((lock.refusal = new DatabaseLocked()));
+  return lock;
+});
 const seenAtRecovery: { db?: unknown; engine?: unknown }[] = [];
 // What startup and shutdown did, in order.
 const order: string[] = [];
@@ -28,6 +40,8 @@ vi.mock("@dispand/domain", () => ({
     }
   },
   createDb,
+  DatabaseLocked,
+  lockDatabase,
   closeDb: async () => order.push("closeDb"),
   createAuth: () => ({}),
   RunnerHub: class {
@@ -67,7 +81,7 @@ vi.mock("@dispand/domain", () => ({
   sweepAttachments: async () => step("sweepAttachments", { removed: 0 })(),
   sweepAudit: async () => step("sweepAudit", { removed: 0 })(),
   purgeArchivedPeople: async () => step("purgeArchivedPeople", { purged: 0 })(),
-  logError: () => {},
+  logError,
   startTelemetry: step("startTelemetry", true),
   stopTelemetry: async () => order.push("stopTelemetry"),
 }));
@@ -76,7 +90,10 @@ beforeEach(() => {
   vi.stubEnv("DATABASE_URL", "pglite://memory");
   delete (globalThis as { __dispandApp?: unknown }).__dispandApp;
   delete (globalThis as { __dispandBuilt?: unknown }).__dispandBuilt;
+  delete (globalThis as { __dispandLock?: unknown }).__dispandLock;
   createDb.mockReset();
+  lockDatabase.mockReset();
+  logError.mockReset();
   seenAtRecovery.length = 0;
   order.length = 0;
   scopes.clear();
@@ -112,6 +129,7 @@ test("getApp opens and migrates, then starts the background work in order; close
   await getApp();
   expect(order).toEqual([
     "startTelemetry",
+    "lockDatabase",
     "createDb",
     "syncPlatformSkills",
     "ensureAssistants",
@@ -125,7 +143,100 @@ test("getApp opens and migrates, then starts the background work in order; close
   ]);
   order.length = 0;
   await closeApp();
-  expect(order).toEqual(["push.stop", "scheduler.stop", "engine.stop", "closeDb", "stopTelemetry"]);
+  expect(order).toEqual(["push.stop", "scheduler.stop", "engine.stop", "closeDb", "lock.release", "stopTelemetry"]);
+});
+
+test("a start takes the lock again if it couldn't be taken, and keeps the one a failed start took", async () => {
+  const { getApp } = await import("./app.ts");
+  lockDatabase.mockRejectedValueOnce(new Error("connection refused"));
+  createDb.mockRejectedValueOnce(new Error("database unavailable")).mockResolvedValueOnce({});
+  await expect(getApp()).rejects.toThrow("connection refused");
+  await expect(getApp()).rejects.toThrow("database unavailable");
+  await getApp();
+  expect(lockDatabase).toHaveBeenCalledTimes(2);
+  expect(createDb).toHaveBeenCalledTimes(2);
+});
+
+test("serve's own app stops the process when another holds the database, before migrating anything", async () => {
+  const { startOwnApp } = await import("./app.ts");
+  lockDatabase.mockRejectedValueOnce(new DatabaseLocked());
+  const stop = vi.fn();
+  await startOwnApp(stop);
+  expect(stop).toHaveBeenCalledOnce();
+  expect(createDb).not.toHaveBeenCalled();
+  expect(logError).toHaveBeenCalledWith("another Dispand process runs on this database: this one stops", expect.any(DatabaseLocked));
+});
+
+test("serve's own app is tried again every 5 s until it starts, then stops the process once its lock is another's", async () => {
+  vi.useFakeTimers();
+  onTestFinished(() => void vi.useRealTimers());
+  const { startOwnApp } = await import("./app.ts");
+  createDb.mockRejectedValueOnce(new Error("database unavailable")).mockResolvedValueOnce({});
+  const stop = vi.fn();
+  const own = startOwnApp(stop);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(createDb).toHaveBeenCalledOnce();
+  expect(logError).toHaveBeenCalledWith("app.start failed", expect.any(Error));
+  await vi.advanceTimersByTimeAsync(4_999);
+  expect(createDb).toHaveBeenCalledOnce();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(order).toContain("scheduler.start");
+  // One lock for both starts: the failed one kept it.
+  expect(lockDatabase).toHaveBeenCalledOnce();
+  expect(stop).not.toHaveBeenCalled();
+  refuse();
+  await own;
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stop).toHaveBeenCalledOnce();
+  expect(logError).toHaveBeenLastCalledWith("another Dispand process runs on this database: this one stops", expect.any(DatabaseLocked));
+});
+
+test("serve's own app stops the process at once when its lock goes to another while it waits to start again, and nothing starts on it", async () => {
+  vi.useFakeTimers();
+  onTestFinished(() => void vi.useRealTimers());
+  const { getApp, startOwnApp } = await import("./app.ts");
+  createDb.mockRejectedValueOnce(new Error("database unavailable")).mockResolvedValue({});
+  const stop = vi.fn();
+  void startOwnApp(stop);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(createDb).toHaveBeenCalledOnce();
+  refuse();
+  await vi.advanceTimersByTimeAsync(0);
+  expect(stop).toHaveBeenCalledOnce();
+  expect(logError).toHaveBeenLastCalledWith("another Dispand process runs on this database: this one stops", expect.any(DatabaseLocked));
+  // Neither the retry nor a request starts anything on the refused lock.
+  await vi.advanceTimersByTimeAsync(5_000);
+  await expect(getApp()).rejects.toBeInstanceOf(DatabaseLocked);
+  expect(createDb).toHaveBeenCalledOnce();
+  expect(order).not.toContain("recover");
+  expect(stop).toHaveBeenCalledOnce();
+});
+
+test("serve's own app stops the process at once when its lock goes to another while it starts", async () => {
+  const { startOwnApp } = await import("./app.ts");
+  createDb.mockResolvedValueOnce({});
+  let resume = () => {};
+  recover.mockImplementationOnce(() => {
+    refuse();
+    return new Promise<void>((resolve) => (resume = resolve));
+  });
+  const stop = vi.fn();
+  const own = startOwnApp(stop);
+  // Before the start under way is done.
+  await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
+  expect(order).not.toContain("scheduler.start");
+  resume();
+  await own;
+});
+
+test("a start whose lock goes to another while it migrates starts nothing", async () => {
+  const { getApp } = await import("./app.ts");
+  createDb.mockImplementationOnce(async () => {
+    refuse();
+    return step("createDb", {})();
+  });
+  await expect(getApp()).rejects.toBeInstanceOf(DatabaseLocked);
+  expect(order).toEqual(["startTelemetry", "lockDatabase", "createDb"]);
 });
 
 test("startApp runs its startup work under SYSTEM", async () => {

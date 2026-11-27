@@ -106,7 +106,7 @@ test.skipIf(!SERVER)("a connection the server ends inside a transaction fails th
 // Every file that loads node-postgres (or drizzle's driver for it, which makes a pool from a URL).
 // A new one fails here until its pools go through `openDb` (which keeps them up) and it is listed.
 const ALLOWED: Record<string, string> = {
-  "packages/domain/src/db/client.ts": "opens the pools, and keeps each up (`keepUp`)",
+  "packages/domain/src/db/client.ts": "opens the pools, and keeps each up (`keepUp`); the database lock's own clients listen for their errors",
   "packages/domain/src/db/connection-loss.test.ts": "this file's pools, through openDb; its admin client lives for one query",
   "packages/domain/src/data/files.test.ts": "a pool on PGlite's client, through openDb",
   "apps/web/package-check/entry.ts": "a database adapter's pool, through openDb",

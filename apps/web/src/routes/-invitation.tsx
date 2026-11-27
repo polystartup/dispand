@@ -77,6 +77,7 @@ export function Recipient({ token, email, enrollsAccounts, refresh }: { token: s
         event.preventDefault();
         setAddress(String(new FormData(event.currentTarget).get("email")).trim());
       }}>
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the page holds only this form, so focus starts in it */}
         <Field label={t("signIn.email")} name="email" type="email" autoComplete="email" required autoFocus />
         <SubmitButton busy={false}>{t("invitation.review")}</SubmitButton>
       </form>

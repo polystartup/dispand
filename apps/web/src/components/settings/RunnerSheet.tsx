@@ -99,6 +99,7 @@ function EditRunner({ runner, onDone }: { runner: Runner; onDone: () => void }) 
       </div>
       <Subscriptions runner={runner} />
       <FormField label={t("runnerSheet.name")} htmlFor="runner-name">
+        {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
         <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
       </FormField>
       {error && (

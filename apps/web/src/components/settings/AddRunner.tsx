@@ -51,6 +51,7 @@ export function AddRunner({ onConnected, onCancel }: { onConnected: (runnerId: s
         }}
       >
         <FormField label={t("addRunner.name")} htmlFor="runner-name" hint={t("addRunner.nameHint")}>
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
           <Input id="runner-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
         </FormField>
         {error && (

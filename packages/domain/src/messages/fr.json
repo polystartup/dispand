@@ -522,6 +522,8 @@
     "invalid_element": "« {{field}} » contient un élément qui n’est pas valide.",
     "invalid_value": "« {{field}} » doit valoir l’un de : {{values}}.",
     "custom": "« {{field}} » n’est pas valide.",
+    "unstorable": "« {{field}} » contient un caractère que Dispand ne peut pas enregistrer (NUL ou un demi-substitut isolé).",
+    "tooDeep": "« {{field}} » est imbriqué à plus de {{maximum}} niveaux de profondeur.",
     "choicesDifferent": "Les choix doivent être différents."
   },
   "push": {

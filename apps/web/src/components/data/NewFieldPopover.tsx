@@ -63,6 +63,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
         <form onSubmit={submit} className="grid gap-3">
           <label className="grid gap-1 text-[13px] font-medium text-muted">
             {t("newField.name")}
+            {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the popover just opened */}
             <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
           </label>
           <label className="grid gap-1 text-[13px] font-medium text-muted">

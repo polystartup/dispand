@@ -34,6 +34,7 @@ export function NewPageRow({ className, onNavigate }: { className: string; onNav
     <div className="px-1 py-0.5">
       <input
         aria-label={t("newPage.titleLabel")}
+        // eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the editor the person asked for
         autoFocus
         value={title}
         maxLength={100}

@@ -73,8 +73,9 @@ const refuseLargeBodies = (request: Request, next: () => Response | Promise<Resp
  * Listens on `config.port` and `config.host`: the built client files, the app's routes and the
  * runner hub's WebSocket upgrade on `/runner/ws`, with per-path body caps. `app` is the entry's own
  * (built and started, see `buildApp`), supplied with `setApp`; without one, the server opens,
- * migrates and starts its own on first use. On SIGINT or SIGTERM it closes the runners' sockets,
- * the server, then the app, and exits.
+ * migrates and starts its own right after listening (`startOwnApp`), and exits with code 1 when
+ * another process runs the engine on its database. On SIGINT or SIGTERM it closes the runners'
+ * sockets, the server, then the app, and exits.
  */
 export async function serve(app: App | Promise<App> | undefined, config: ServerConfig): Promise<Server> {
   // A failed start fails here, before listening.
@@ -114,6 +115,10 @@ export async function serve(app: App | Promise<App> | undefined, config: ServerC
       })();
     });
   }
+  // Its own app starts now, not at the first request. When another process holds the database
+  // (`startOwnApp`), it ends the process at once, for its supervisor to start it again: a graceful
+  // stop would wait for work this engine goes on with meanwhile.
+  if (!app) void import("./server/app.ts").then((own) => own.startOwnApp(() => process.exit(1)));
   return server;
 }
 

@@ -148,6 +148,7 @@ function ReferenceEditor({ field, ...rest }: Props) {
 function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
   const { t } = useTranslation("data");
   return (
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Escape from any option closes the inline editor
     <div
       className={cn("rounded-xl bg-surface p-1", inline ? "absolute left-0 top-0 z-20 min-w-48 shadow-card" : "border border-line")}
       onKeyDown={(e) => {
