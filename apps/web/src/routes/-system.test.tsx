@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen } from "@testing-library/react";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, expect, test, vi } from "vitest";
 import { createI18n } from "../lib/i18n.ts";
@@ -49,6 +49,7 @@ function open(role: "owner" | "manager" | "member", language: "en" | "fr" = "en"
       </WorkspaceScope>
     </I18nextProvider>,
   );
+  return client;
 }
 
 test("a manager sees the scheduler's last tick, the runners against the server's protocol, and the failing polls", async () => {
@@ -56,7 +57,7 @@ test("a manager sees the scheduler's last tick, the runners against the server's
   open("manager");
   expect(await screen.findByText("Last tick 12 s ago.")).toBeTruthy();
   expect(screen.getByText("This server speaks runner protocol 41.")).toBeTruthy();
-  expect(screen.getByText("Last connected with protocol 40")).toBeTruthy();
+  expect(screen.getByText("Last reported protocol 40")).toBeTruthy();
   expect(screen.getByText("Never connected")).toBeTruthy();
   expect(screen.getByText("Needs an update")).toBeTruthy();
   expect(screen.getByText("The latest poll of 1 poll trigger failed.")).toBeTruthy();
@@ -74,6 +75,16 @@ test("a stale scheduler is an alert; none in this process, or nothing failing, s
   expect(await screen.findByText("The scheduler doesn’t run in the server process that answered.")).toBeTruthy();
   expect(screen.getByText("This workspace has no runner.")).toBeTruthy();
   expect(screen.getByText("No poll trigger’s latest poll failed.")).toBeTruthy();
+});
+
+test("a refresh that fails says the page shows the server's last answer, and when it came", async () => {
+  system.status.mockResolvedValue(state);
+  const client = open("manager");
+  await screen.findByText("Last tick 12 s ago.");
+  system.status.mockRejectedValue(new Error("down"));
+  await act(() => client.refetchQueries());
+  expect((await screen.findByRole("alert")).textContent).toMatch(/^Could not refresh: this is what the server answered at /);
+  expect(screen.getByText("Last tick 12 s ago.")).toBeTruthy();
 });
 
 test("a member is told the page is the managers', and asks nothing", async () => {

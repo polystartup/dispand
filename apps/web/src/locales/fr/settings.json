@@ -114,6 +114,7 @@
     "subtitle": "Ce qu’il faut vérifier quand quelque chose ne va pas dans cet espace de travail.",
     "managersOnly": "Seuls les gestionnaires de l’espace de travail voient cette page.",
     "loadFailed": "Impossible de charger l’état du système.",
+    "stale": "Actualisation impossible : voici ce que le serveur a répondu à {{time}}.",
     "scheduler": {
       "title": "Planificateur",
       "ok": "Dernier passage il y a {{age}}.",
@@ -124,7 +125,7 @@
       "title": "Runners",
       "server": "Ce serveur parle le protocole runner {{version}}.",
       "none": "Cet espace de travail n’a aucun runner.",
-      "protocol": "Dernière connexion avec le protocole {{version}}",
+      "protocol": "Dernier protocole annoncé : {{version}}",
       "never": "Jamais connecté"
     },
     "polls": {

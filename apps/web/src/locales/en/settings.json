@@ -114,6 +114,7 @@
     "subtitle": "What to check when something seems wrong in this workspace.",
     "managersOnly": "Only the workspace’s managers see this page.",
     "loadFailed": "Could not load the system’s state.",
+    "stale": "Could not refresh: this is what the server answered at {{time}}.",
     "scheduler": {
       "title": "Scheduler",
       "ok": "Last tick {{age}} ago.",
@@ -124,7 +125,7 @@
       "title": "Runners",
       "server": "This server speaks runner protocol {{version}}.",
       "none": "This workspace has no runner.",
-      "protocol": "Last connected with protocol {{version}}",
+      "protocol": "Last reported protocol {{version}}",
       "never": "Never connected"
     },
     "polls": {

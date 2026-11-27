@@ -28,8 +28,8 @@ const create = writer.input(z.object({ name: Name })).handler(async ({ input, co
 
 /**
  * The workspace's live runners, each with its status as this process's hub sees it: online,
- * outdated (too old to connect, with the command that updates it) or offline. Only the
- * workspace's own runners are asked about.
+ * outdated (too old to connect, with the command that updates it) or offline, and the protocol it
+ * last reported (null if it never did). Only the workspace's own runners are asked about.
  */
 export async function workspaceRunners(context: { db: Db; hub: RunnerHub; auth: Auth; access: { workspaceId: string } }) {
   const rows = await context.db
@@ -48,16 +48,19 @@ export async function workspaceRunners(context: { db: Db; hub: RunnerHub; auth: 
   // An outdated runner can't connect (the hub answers 426) until it is updated in place: its config and token stay.
   const updateCommand = `curl -fsSL ${context.auth.options.baseURL}/runner/install.sh | sh -s -- --update`;
   return Promise.all(
-    rows.map(async (row) => {
+    rows.map(async ({ protocolVersion, ...row }) => {
       const r = { ...row, runnerUpdate: await context.hub.updates.status(row.id) };
-      if (context.hub.isOnline(r.id)) return { ...r, status: "online" as const };
-      if (row.protocolVersion !== null && row.protocolVersion < PROTOCOL_VERSION) return { ...r, status: "outdated" as const, updateCommand };
-      return { ...r, status: "offline" as const };
+      const runner = context.hub.isOnline(r.id)
+        ? { ...r, status: "online" as const }
+        : protocolVersion !== null && protocolVersion < PROTOCOL_VERSION
+          ? { ...r, status: "outdated" as const, updateCommand }
+          : { ...r, status: "offline" as const };
+      return { runner, protocolVersion };
     }),
   );
 }
 
-const list = reader.handler(({ context }) => workspaceRunners(context));
+const list = reader.handler(async ({ context }) => (await workspaceRunners(context)).map(({ runner }) => runner));
 
 /** The workspace's live runner, or NOT_FOUND. */
 async function requireRunner(context: { db: Db; access: { workspaceId: string } }, runnerId: string) {

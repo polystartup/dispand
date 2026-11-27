@@ -41,7 +41,7 @@ const status = base.use(manager).handler(async ({ context }) => {
     protocolVersion: PROTOCOL_VERSION,
     // Null: this process runs no scheduler (another may).
     scheduler: since === undefined ? null : { sinceTickMs: since, stale: since > STALE_TICK_MS },
-    runners: (await workspaceRunners(context)).map(({ id, name, status, protocolVersion, lastSeenAt }) => ({ id, name, status, protocolVersion, lastSeenAt })),
+    runners: (await workspaceRunners(context)).map(({ runner: { id, name, status, lastSeenAt }, protocolVersion }) => ({ id, name, status, protocolVersion, lastSeenAt })),
     failingPolls,
   };
 });

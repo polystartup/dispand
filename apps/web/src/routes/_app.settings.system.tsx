@@ -18,6 +18,7 @@ function System() {
   const manages = role === "owner" || role === "manager";
   // The scheduler ticks every 15 s: refreshed as often.
   const status = useQuery(orpc.system.status.queryOptions({ enabled: manages, refetchInterval: 15_000 }));
+  const { dateTimeSeconds } = useFormat();
   return (
     <>
       <PageHeader title={t("system.title")} subtitle={t("system.subtitle")} />
@@ -31,6 +32,12 @@ function System() {
         <p role="status">{t("loading")}</p>
       ) : (
         <div className="space-y-8">
+          {/* What follows is the last answer: an operator must not read it as live while the server is down. */}
+          {status.isRefetchError && (
+            <p role="alert" className="text-[14px] text-danger">
+              {t("system.stale", { time: dateTimeSeconds(status.dataUpdatedAt) })}
+            </p>
+          )}
           <Scheduler scheduler={status.data.scheduler} />
           <Runners protocolVersion={status.data.protocolVersion} runners={status.data.runners} />
           <Polls polls={status.data.failingPolls} />
