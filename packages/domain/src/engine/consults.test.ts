@@ -1,11 +1,13 @@
 import { call } from "@orpc/server";
 import { type Answer, type HarnessEvent, SESSION_NOT_RUNNING } from "@dispand/runner-protocol";
-import { and, asc, eq, isNotNull } from "drizzle-orm";
+import { and, asc, eq, isNotNull, sql } from "drizzle-orm";
 import { describe, expect, onTestFinished, test, vi } from "vitest";
 import { agentConsults, audit, agents, events, questions, roots, runs, stepRuns, user, workspaceSettings } from "../db/schema.ts";
 import { takeApproval } from "../platform/approvals.ts";
 import { message, rendered, storedSentence } from "../messages/index.ts";
+import type { Db } from "../db/client.ts";
 import { router } from "../rpc/router.ts";
+import { onPostgres } from "../runners/test-tags.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { INTERACTION } from "../triggers/model.ts";
 import { CONSULTED_STOPPED, CONSULTED_STOPPED_AT_CHECKPOINT, IN_CHAIN, NOT_LISTED } from "./consults.ts";
@@ -684,6 +686,72 @@ test("a decline at a checkpoint stops the chain below, and an asker in another r
   for (const id of [expertRun, thirdRun]) expect(await s.run(id)).toMatchObject({ status: "failed", error: STOPPED });
   expect(await s.run(chatRun)).toMatchObject({ status: "running" });
   expect(await s.answered(chatSession)).toEqual([{ kind: "consult", outcome: "failed", text: CONSULTED_STOPPED_AT_CHECKPOINT }]);
+});
+
+/** The other sessions of this database waiting for a lock. */
+async function waitingSessions(db: Db): Promise<number> {
+  const { rows } = (await db.execute(
+    sql`select count(*)::int as n from pg_stat_activity where datname = current_database() and pid <> pg_backend_pid() and wait_event_type = 'Lock'`,
+  )) as unknown as { rows: { n: number }[] };
+  return rows[0]!.n;
+}
+
+// On PostgreSQL behind a pool only: PGlite's one connection never interleaves two transactions.
+test.skipIf(!onPostgres)("stopping a chat that moved to a new root, while the Job it consulted asks a consult of its own, never deadlocks", async () => {
+  const s = await setup();
+  const chat = await call(
+    router.triggers.create,
+    { agentId: s.asker.id, name: "Chat", instructions: "", config: { kind: "manual", placement: "chat" } },
+    { context: s.context },
+  );
+  const chatRun = await s.engine().startJob(chat.id, s.context.ownerId);
+  const chatSession = await vi.waitFor(async () => {
+    const [step] = await s.context.db
+      .select()
+      .from(stepRuns)
+      .where(and(eq(stepRuns.runId, chatRun), isNotNull(stepRuns.sessionId)));
+    if (!step || !s.adapter.starts.some((x) => x.start.sessionId === step.sessionId)) throw new Error("not started");
+    return step.sessionId!;
+  });
+  await s.engine().sendChat(chatRun, "Ask the expert.");
+  const expertRun = await s.consulted((await s.consult(chatSession, s.expert.id)).id);
+  const expertSession = await s.sessionOf(expertRun);
+  // The chat moves on to a new root while its consulted Job still runs in the first one.
+  await s.engine().sendChat(chatRun, "And then?");
+  expect((await s.run(chatRun)).rootId).not.toBe((await s.run(expertRun)).rootId);
+  // The order that deadlocked: the stop holds the chat's run and waits for its step's row, held
+  // here; the expert's consult holds its root, then waits for the chat's run (its asker); once the
+  // row is let go, the stop reaches the expert's run through the chat's consult, and its root.
+  const wait = { timeout: 10_000 };
+  let held!: () => void;
+  let release!: () => void;
+  const locked = new Promise<void>((resolve) => (held = resolve));
+  const gate = new Promise<void>((resolve) => (release = resolve));
+  const holder = s.context.db.transaction(async (tx) => {
+    await tx.select({ id: stepRuns.id }).from(stepRuns).where(eq(stepRuns.runId, chatRun)).for("no key update");
+    held();
+    await gate;
+  });
+  await locked;
+  const settle = (p: Promise<unknown>) =>
+    p.then(
+      () => null,
+      (reason: unknown) => reason,
+    );
+  let results: unknown[];
+  try {
+    const stop = settle(s.engine().stopRun(chatRun));
+    await vi.waitFor(async () => expect(await waitingSessions(s.context.db)).toBe(1), wait);
+    const nested = settle(s.consult(expertSession, s.third.id));
+    await vi.waitFor(async () => expect(await waitingSessions(s.context.db)).toBe(2), wait);
+    release();
+    results = await Promise.all([stop, nested]);
+  } finally {
+    release();
+    await holder;
+  }
+  expect(results.filter((r) => r !== null && !(r instanceof EngineError && r.code === "CLOSED"))).toEqual([]);
+  for (const id of [chatRun, expertRun]) expect(await s.run(id)).toMatchObject({ status: "failed", error: STOPPED });
 });
 
 test("an event a consulted Job writes fires the asking agent's trigger, in the same root", async () => {

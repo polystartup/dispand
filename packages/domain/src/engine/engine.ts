@@ -88,7 +88,7 @@ import { awaitsConsentOf, type MessageRow, messageView, type Out, type QuestionR
 import { answerText, earlierConversation, resumePrompt } from "./answers.ts";
 import { EngineError, RUNNER_REVOKED, STOPPED, stoppedByHand, TOOL_RESTARTED } from "./errors.ts";
 import { runIssues, startProblem } from "./problems.ts";
-import { agentHarnesses, defOf, deliveredTranscript, expectRunLocked, lockRun, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
+import { agentHarnesses, defOf, deliveredTranscript, expectRunLocked, lockRoot, lockRootOf, lockRun, openIteration, pushStep, release, rootGoingLocked, skip, startLoop, undeliveredMessages } from "./step-rows.ts";
 import { lostScope, withMemory } from "./job-reads.ts";
 import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.ts";
 import { addresseeOf } from "./addressee.ts";
@@ -399,13 +399,13 @@ export class Engine {
     const { ownerId, agentId, triggerId, cause, firing } = input;
     const runId = newId("run");
     // An existing root first, then the trigger and the agent (`roots.ts`); a new one is no one else's yet.
-    const lockRoot = async (rootId: string) => {
-      const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("update");
+    const lockJobRoot = async (rootId: string) => {
+      const root = await lockRoot(tx, rootId);
       if (!root) throw new EngineError("NOT_FOUND", message("engine.rootNotFound"));
       if (root.state === "stopped") throw new EngineError("STOPPED", message("engine.stoppedAtCheckpoint"));
       return root;
     };
-    const given = input.rootId ? await lockRoot(input.rootId) : undefined;
+    const given = input.rootId ? await lockJobRoot(input.rootId) : undefined;
     // Shared with other starts, exclusive with a delete: a delete sees this Job and stops it, or
     // this start finds no agent. The trigger first, then the agent: the order the scheduler and a
     // delete take them in (`deleteAgents`), so none of them waits on another.
@@ -426,7 +426,7 @@ export class Engine {
     if (!agent || (given && given.workspaceId !== agent.workspaceId)) throw new EngineError("NOT_FOUND", message("agent.notFound"));
     // A consult's and a Stem Job's firing is no trigger: the consult's root is the asking Job's; a Stem Job's, the owner's hand-off.
     if (firing.type === "consult" ? triggerId || !given : firing.type === "stem" ? !!triggerId : !trigger || !trigger.enabled) throw new EngineError("NOT_FOUND", message("triggers.notFound"));
-    const root = given ?? (await lockRoot(await newRoot(tx, ownerId, agent.workspaceId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
+    const root = given ?? (await lockJobRoot(await newRoot(tx, ownerId, agent.workspaceId, cause.kind === "stem" ? "user" : (cause.kind as RootKind), runId)));
     const rootId = root.id;
     // A Stem Job decides the fields handed to it and nothing else: no skill, tool, bundle, memory or consult, and one tool of Dispand's.
     const stem = firing.type === "stem";
@@ -1307,7 +1307,7 @@ export class Engine {
     // Allowed: it is in the consulted agent's inbox from now on (`questions/inbox.ts`).
     await tx.update(questions).set({ addresseeAgentId: consultedId }).where(eq(questions.id, q.id));
     const [asker] = await tx.select().from(runs).where(eq(runs.id, q.runId));
-    const [root] = await tx.select({ state: roots.state }).from(roots).where(eq(roots.id, asker!.rootId!)).for("update");
+    const root = await lockRoot(tx, asker!.rootId!);
     // Its organization refused: it waits as for a paused root, opened once allowed (`redrain`).
     if (root?.state !== "going" || (await refusedRun(tx, q.runId, this.refused))) return;
     const askingAgent = asker!.snapshot?.name ?? (await agentName(tx, asker!.agentId!));
@@ -1537,8 +1537,8 @@ export class Engine {
     const decision = answer.kind === "permission" ? answer.decision : "deny";
     const answered = decision === "allow-always" ? "dont-ask" : decision === "allow" ? "approve" : "decline";
     counts.counter("dispand.checkpoints.answered").add(1, { "dispand.checkpoint.answer": answered });
-    // `NO KEY UPDATE`: a Job ending meanwhile (its run locked) still writes events referencing the root, so the decline's wait on its runs can't deadlock with it.
-    const [root] = await tx.select().from(roots).where(eq(roots.id, rootId)).for("no key update");
+    // `lockRoot`'s `NO KEY UPDATE`: a Job ending meanwhile (its run locked) still writes events referencing the root, so the decline's wait on its runs can't deadlock with it.
+    const root = await lockRoot(tx, rootId);
     if (!root || root.state !== "paused") return {};
     // The root's row, besides its Approval's `question.answered`: on a decline, with what it stopped.
     const audited = (details: { events?: number; jobs?: number } = {}) =>
@@ -1622,7 +1622,7 @@ export class Engine {
       const out: Out[] = [];
       await this.db.transaction(async (tx) => {
         await lockConsults(tx, workspaceId);
-        // The asking root `FOR UPDATE` before its run: opening the consult makes a Job in it (`openConsult`).
+        // The asking root (`lockRoot`) before its run: opening the consult makes a Job in it (`openConsult`).
         const [asked] = await tx.select({ runId: questions.runId }).from(questions).where(eq(questions.id, id));
         if (asked) {
           await rootGoingLocked(tx, asked.runId, null);
@@ -1725,13 +1725,8 @@ export class Engine {
       if (event.type === "question" && event.payload.kind === "consult") {
         const [asking] = await tx.select({ workspaceId: runs.workspaceId }).from(stepRuns).innerJoin(runs, eq(runs.id, stepRuns.runId)).where(eq(stepRuns.sessionId, sessionId));
         if (asking) await lockConsults(tx, asking.workspaceId);
-        await tx
-          .select({ id: roots.id })
-          .from(stepRuns)
-          .innerJoin(runs, eq(runs.id, stepRuns.runId))
-          .innerJoin(roots, eq(roots.id, runs.rootId))
-          .where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId)))
-          .for("update", { of: roots });
+        const [asker] = await tx.select({ runId: stepRuns.runId }).from(stepRuns).where(and(eq(stepRuns.sessionId, sessionId), sessionSource(tx, from.runnerId)));
+        if (asker) await lockRootOf(tx, asker.runId);
       }
       // The run before its step (`lockRun`). Words, which come many at a time, write only the step and its transcript.
       if (event.type !== "text") {

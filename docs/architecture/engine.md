@@ -83,7 +83,12 @@
   answer and a stop) wait for each other instead of deadlocking. One that locks several runs (an
   agent deleted, consults revoked, a checkpoint declined) takes them and their askers by consult
   depth, then id (`lockRuns`). `endStep`, `reopen`, `finishRun` and `syncWaiting` throw in a
-  transaction that didn't lock the run (`expectRunLocked`).
+  transaction that didn't lock the run (`expectRunLocked`). What counts a root's Jobs, pauses or
+  settles it, opens a consult in it or moves a chat out of it holds the root (`lockRoot`,
+  `FOR NO KEY UPDATE`, taken before any run, or it throws; `lockRootOf` follows a chat that moved
+  meanwhile), never `FOR UPDATE`: a run's root key share never waits on it, so a consulted Job
+  still in the root its chat moved out of and that chat are locked in either order. Only
+  `lockRoot` and `lockRun` lock a root (`root-locks.test.ts`).
   `onHarnessEvent` only writes and returns; replays are dropped per step run by `event_seq`
   (the highest runner seq handled, raised in the same transaction as the event's effects), and
   only the session's own runner may report on it. Starts, answers and chat messages
@@ -340,14 +345,14 @@
 - **Checkpoints** (`engine/roots.ts`): every Job has a root cause, a `roots` row (`kind`: `user`
   for a start by hand, `chat`, `schedule`, `event` for a person's or a workflow's write, `poll`),
   going, paused or stopped. `Engine.createJob`, the one place a Job is made, locks the root's row
-  (`FOR UPDATE`, before the trigger's and the agent's share locks), counts the Job in `jobs`, and
+  (`lockRoot`, before the trigger's and the agent's share locks), counts the Job in `jobs`, and
   when `jobs - counted_from` reaches the workspace's `checkpoint` (`workspace_settings` of the agent's workspace, default
   100) pauses the root and asks one Approval: a `permission` question with no session, its
   `root_id` set and `toolName` `checkpoint` (its input: what the root is, the Jobs made, the
   agents involved and since when), on the Job that reached it, or, for a chat message, in the chat.
   A Job's write keeps its run's root on its event (`events.root_id`, in `recordEvent`); a person's
   or a workflow's write gets a root of its own when the scheduler first claims it. The scheduler
-  reads each event's root once, at its claim, locked `FOR UPDATE SKIP LOCKED` until the tick
+  reads each event's root once, at its claim, locked (`lockRoot`, `SKIP LOCKED`) until the tick
   commits (another scheduler holding it leaves the event for a later tick): a paused root's events
   and deferred fires stay unclaimed (`notPaused`), and the event that reaches the checkpoint still
   makes every Job its triggers call for. A chat's run moves to a new root (`chat`) with each
