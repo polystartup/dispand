@@ -60,7 +60,8 @@
       "call": "Tool action called"
     },
     "poll": {
-      "run": "Tool polled"
+      "run": "Tool polled",
+      "itemRetried": "Polled item handed to another Job"
     },
     "event": {
       "recorded": "Row change recorded"

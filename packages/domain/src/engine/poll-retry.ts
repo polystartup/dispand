@@ -1,7 +1,7 @@
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import { recordAudit } from "../audit/record.ts";
 import type { Tx } from "../db/client.ts";
-import { messages, pollItems, questions, runs } from "../db/schema.ts";
+import { messages, pollItems, questions, runs, triggers } from "../db/schema.ts";
 import { stored, storedText } from "../messages/index.ts";
 import { meter } from "../telemetry/index.ts";
 
@@ -28,28 +28,40 @@ export function transientFailure(error: string | null): boolean {
  * A poll's Job that failed transiently (`transientFailure`) hands its item back: `deferred` again,
  * so a tick starts another Job for it (`Scheduler.claimDeferredItems`), up to `POLL_ITEM_JOBS` Jobs
  * in all. Only when the Job called no tool and asked nothing: another Job would do or ask it
- * again. In the transaction that ends the Job (`Engine.finishRun`), with its Audit row.
+ * again. Only under the source that found it: the trigger on, and unchanged since the Job began
+ * (a change of source refuses the items waiting, `rebaselines`). In the transaction that ends the
+ * Job (`Engine.finishRun`), with its Audit row.
  */
 export async function retryPollItem(tx: Tx, run: typeof runs.$inferSelect): Promise<void> {
   if (run.cause?.kind !== "poll" || !run.agentId || !transientFailure(run.error)) return;
   const { triggerId, itemId } = run.cause;
+  // Its key share, so an edit (`FOR UPDATE`) waits for this hand-back, then refuses the item if the
+  // source changed. Skipped while held: a delete of the agent locks its triggers, then its runs,
+  // which this transaction holds.
+  const [trigger] = await tx
+    .select({ enabled: triggers.enabled, updatedAt: triggers.updatedAt })
+    .from(triggers)
+    .where(eq(triggers.id, triggerId))
+    .for("key share", { skipLocked: true });
+  if (!trigger?.enabled) return;
   const [item] = await tx
     .select()
     .from(pollItems)
     .where(and(eq(pollItems.triggerId, triggerId), eq(pollItems.itemId, itemId), eq(pollItems.runId, run.id), eq(pollItems.status, "started")))
     .for("update");
-  if (!item) return;
+  // Edited since its Job began (the same clock stamps both): its source may have changed.
+  if (!item?.startedAt || trigger.updatedAt >= item.startedAt) return;
   const [acted] = await tx
     .select({ n: count() })
     .from(messages)
     .where(and(eq(messages.runId, run.id), eq(messages.role, "tool")));
   const [asked] = await tx.select({ n: count() }).from(questions).where(eq(questions.runId, run.id));
   if (acted!.n > 0 || asked!.n > 0) return;
-  // Its Jobs so far: those of its trigger's agent since it was first seen, with it as their cause.
+  // Its Jobs so far: its trigger's agent's with it as their cause (an item is seen once by its trigger).
   const [jobs] = await tx
     .select({ n: count() })
     .from(runs)
-    .where(and(eq(runs.agentId, run.agentId), gte(runs.createdAt, item.firstSeen), eq(runs.triggerId, triggerId), sql`${runs.cause}->>'itemId' = ${itemId}`));
+    .where(and(eq(runs.agentId, run.agentId), eq(runs.triggerId, triggerId), sql`${runs.cause}->>'itemId' = ${itemId}`));
   if (jobs!.n >= POLL_ITEM_JOBS) return;
   await tx
     .update(pollItems)

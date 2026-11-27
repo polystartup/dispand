@@ -227,6 +227,8 @@ async function cloudWatch(s: Awaited<ReturnType<typeof setup>>, ...script: Scrip
     },
     { context: s.context },
   );
+  // Saved once more on the test's clock, which stamps its Jobs' items too (`retryPollItem` compares them).
+  await call(router.triggers.update, { id: trigger.id, name: trigger.name }, { context: s.context });
   const scheduler = new Scheduler(s.context.db, engine, { now: s.time.now, polls: s.caller });
   // The baseline, then one new mail.
   await scheduler.tick();
@@ -263,6 +265,20 @@ test("a poll's Job that failed on a provider's error that may pass, before doing
 test("a poll's Job that called a tool before the provider's error keeps its item: another Job would call it again", async () => {
   const s = await setup();
   const { engine, trigger, scheduler } = await cloudWatch(s, use("not_a_tool", {}), busy, say("never"));
+  const [runId] = await scheduler.tick();
+  expect(await runEnded(engine, runId!)).toMatchObject({ status: "failed", error: stored("cloud.fail.rateLimited") });
+  s.time.add(MINUTE);
+  expect(await scheduler.tick()).toEqual([]);
+  expect((await s.itemsOf(trigger.id)).map((i) => [i.status, i.runId])).toEqual([["started", runId]]);
+});
+
+test("a poll's Job whose trigger was edited while it ran keeps its item: it may read another source now", async () => {
+  const s = await setup();
+  const edited: Script = async () => {
+    await call(router.triggers.update, { id: trigger.id, name: "Mail to triage" }, { context: s.context });
+    return busy({} as never);
+  };
+  const { engine, trigger, scheduler } = await cloudWatch(s, edited, say("never"));
   const [runId] = await scheduler.tick();
   expect(await runEnded(engine, runId!)).toMatchObject({ status: "failed", error: stored("cloud.fail.rateLimited") });
   s.time.add(MINUTE);
