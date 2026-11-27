@@ -86,7 +86,8 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
 - **An OAuth tool's tokens, client secret and code verifier never leave the server.**
   [`oauth.test.ts`](packages/domain/src/tools/oauth.test.ts): "a redirect to another origin during the token exchange is refused: no code, verifier or secret reaches it",
   "what the server sends back is redacted of the tool's client secret and tokens".
-- **A Web Push carries an agent's name, the item's kind, its random id and how many wait, nothing else.**
+- **A Web Push carries no content**: a sentence naming the agent or workflow and the item's kind, how many
+  items it announces, and the newest one's random id.
   [`sender.test.ts`](packages/domain/src/push/sender.test.ts): "a new approval sends one payload of exactly the sentence, the count and the item's id, no question text".
 
 ### [Secrets, logs and telemetry](docs/security/secrets-and-telemetry.md)
@@ -126,9 +127,12 @@ those under `apps/runner/test/sandbox/` run in the Runner sandbox workflow, on r
 
 - **File tools read and write only inside the session folder** (reads also in the CLI's plugin code and skills).
   [`boundary.test.ts`](apps/runner/src/boundary.test.ts): "file tools read only inside the session folder, and the CLI's plugin code and skills/", "edits outside the working directory are denied".
-  A Codex session reads more widely (see the model). A shell command asks first, except under bypass permissions
-  (which the runner's own config must allow), where a saved allow rule matches it, or when Codex knows it as read-only:
-  see the model, these tests cover the file boundary.
+  A Codex session reads more widely (see the model).
+- **A shell command asks first**, except under bypass permissions (which the runner's own config must allow), where a
+  saved allow rule matches it, or when Codex knows it as read-only.
+  On Claude Code, [`claude.test.ts`](apps/runner/src/claude.test.ts): "in %s mode, every shell command asks the owner, even one the CLI would auto-approve",
+  "saved native rules pass the boundary first and never become SDK wildcard settings". No test covers which commands
+  Codex knows as read-only: Codex decides.
 - **The runner's container image runs each session's CLI in a worker of its own.**
   [`contract.test.ts`](apps/runner/test/sandbox/contract.test.ts): "non-root, read-only image, no capability, no network, only its own storage and its own variables";
   [`launch-sites.test.ts`](apps/runner/src/sandbox/launch-sites.test.ts): "every process the runner starts is classified, and each worker site passes a worker's launch".
