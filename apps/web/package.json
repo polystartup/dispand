@@ -47,7 +47,6 @@
     "@orpc/client": "^1.16.4",
     "@orpc/server": "^1.16.4",
     "@orpc/tanstack-query": "^1.16.4",
-    "@tanstack/react-form": "^1.33.6",
     "@tanstack/react-query": "^5.108.2",
     "@tanstack/react-router": "^1.170.46",
     "@tanstack/react-start": "^1.169.7",

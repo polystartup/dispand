@@ -1,17 +1,14 @@
-import { CloudFields, cloudRefusal } from "@dispand/domain/harnesses/model";
-import { say } from "@dispand/domain/messages/index.ts";
-import type { i18n, TFunction } from "i18next";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { revalidateLogic, useStore } from "@tanstack/react-form";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { orpc } from "../../lib/api.ts";
-import { messageText } from "../../lib/message.ts";
 import { refusal } from "../../lib/refusal.ts";
+import { cloudErrors, cloudInput, NO_EFFORT } from "./cloud-harness-input.ts";
 import type { Harness } from "./HarnessSheet.tsx";
-import { useAppForm } from "./form.tsx";
 import { FormField } from "./parts.tsx";
 
 type CloudHarness = Extract<Harness, { type: "cloud" }>;
@@ -22,7 +19,6 @@ type Effort = NonNullable<CloudHarness["effort"]>;
 const KINDS: Kind[] = ["anthropic", "openai", "openai-compatible"];
 
 const defaultModels: Record<Kind, string> = { anthropic: "claude-opus-5-5", openai: "", "openai-compatible": "" };
-const NO_EFFORT = "default";
 const OTHER = "__other";
 
 type Props = {
@@ -31,89 +27,28 @@ type Props = {
   onSaved: (harness: Harness, created: boolean) => void;
 };
 
-type Values = {
-  name: string;
-  kind: Kind;
-  baseUrl: string;
-  apiKey: string;
-  clearKey: boolean;
-  model: string;
-  systemPrompt: string;
-  maxTokens: string;
-  effort: Effort | typeof NO_EFFORT;
-  temperature: string;
-};
-
-/** What the procedures take, from the form's values: what is empty is left out. */
-function toInput(v: Values) {
-  return {
-    type: "cloud" as const,
-    name: v.name,
-    kind: v.kind,
-    ...(v.baseUrl.trim() ? { baseUrl: v.baseUrl.trim() } : {}),
-    ...(v.apiKey.trim() ? { apiKey: v.apiKey.trim() } : v.clearKey ? { apiKey: "" } : {}),
-    model: v.model.trim(),
-    systemPrompt: v.systemPrompt,
-    ...(v.maxTokens.trim() ? { maxTokens: Number(v.maxTokens) } : {}),
-    ...(v.effort !== NO_EFFORT && v.kind !== "openai-compatible" ? { effort: v.effort } : {}),
-    ...(v.temperature.trim() && v.kind === "openai-compatible" ? { temperature: Number(v.temperature) } : {}),
-  };
-}
-
-/** The fields the procedure would refuse, each with its reason in the page's language. */
-function invalid(v: Values, harness: CloudHarness | undefined, t: TFunction<"harnesses">, i18n: i18n) {
-  const input = toInput(v);
-  const fields: Record<string, string> = {};
-  for (const issue of CloudFields.safeParse(input).error?.issues ?? []) fields[String(issue.path[0])] ??= t(`cloud.invalid.${String(issue.path[0])}` as never);
-  // As on the server: an update that sends no key keeps the stored one, but only for the URL it was saved for.
-  const kept = harness?.apiKeySet === true && (input.baseUrl ?? null) === (harness.baseUrl ?? null);
-  // Not on an address that failed to parse: the rule reads it.
-  const refused = fields.baseUrl ? undefined : cloudRefusal(input.kind, input.baseUrl, input.apiKey === undefined ? kept : input.apiKey !== "");
-  if (refused) fields[refused.field] ??= messageText(i18n, say(refused.key));
-  return { fields };
-}
-
 /** The form of a cloud harness: a provider's API with a key, sealed on the server. */
 export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
   const { t, i18n } = useTranslation("harnesses");
-  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState(harness?.name ?? "");
+  const [kind, setKind] = useState<Kind>(harness?.kind ?? "anthropic");
+  const [baseUrl, setBaseUrl] = useState(harness?.baseUrl ?? "");
+  const [apiKey, setApiKey] = useState("");
+  const [clearKey, setClearKey] = useState(false);
+  const [model, setModel] = useState(harness?.model ?? defaultModels.anthropic);
   const [otherModel, setOtherModel] = useState(false);
+  const [systemPrompt, setSystemPrompt] = useState(harness?.systemPrompt ?? "");
+  const [maxTokens, setMaxTokens] = useState(harness?.maxTokens?.toString() ?? "");
+  const [effort, setEffort] = useState<Effort | typeof NO_EFFORT>(harness?.effort ?? NO_EFFORT);
+  const [temperature, setTemperature] = useState(harness?.temperature?.toString() ?? "");
+  const [error, setError] = useState<string | null>(null);
   // What the model list was last asked for: set when the key or the base URL field is left.
   const [probe, setProbe] = useState<{ kind: Kind; baseUrl: string; apiKey: string } | null>(null);
 
   const create = useMutation(orpc.harnesses.create.mutationOptions());
   const update = useMutation(orpc.harnesses.update.mutationOptions());
   const del = useMutation(orpc.harnesses.delete.mutationOptions());
-
-  const form = useAppForm({
-    defaultValues: {
-      name: harness?.name ?? "",
-      kind: harness?.kind ?? "anthropic",
-      baseUrl: harness?.baseUrl ?? "",
-      apiKey: "",
-      clearKey: false,
-      model: harness?.model ?? defaultModels.anthropic,
-      systemPrompt: harness?.systemPrompt ?? "",
-      maxTokens: harness?.maxTokens?.toString() ?? "",
-      effort: harness?.effort ?? NO_EFFORT,
-      temperature: harness?.temperature?.toString() ?? "",
-    } as Values,
-    // Checked on submit; then on every change, so an error goes as the field is put right.
-    validationLogic: revalidateLogic({ mode: "submit", modeAfterSubmission: "change" }),
-    validators: { onDynamic: ({ value }) => invalid(value, harness, t, i18n) },
-    onSubmit: async ({ value }) => {
-      setError(null);
-      try {
-        const fields = toInput(value);
-        const saved = harness ? await update.mutateAsync({ ...fields, id: harness.id }) : await create.mutateAsync(fields);
-        onSaved(saved, !harness);
-      } catch (e) {
-        setError(refusal(e, t("sheet.saveFailed"), ["BAD_REQUEST"]));
-      }
-    },
-  });
-  const { kind, baseUrl, apiKey, clearKey, model } = useStore(form.store, (s) => s.values);
-  const busy = useStore(form.store, (s) => s.isSubmitting) || del.isPending;
+  const busy = create.isPending || update.isPending || del.isPending;
 
   const keySet = harness?.apiKeySet === true && !clearKey;
   // A saved harness lists with its stored key until the form changes where it points or the key.
@@ -134,9 +69,26 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
   const picking = listed.length > 0 && !otherModel;
 
   function changeKind(next: Kind) {
-    form.setFieldValue("kind", next);
-    if (!harness && (!model || model === defaultModels[kind])) form.setFieldValue("model", defaultModels[next]);
+    setKind(next);
+    if (!harness && (!model || model === defaultModels[kind])) setModel(defaultModels[next]);
     setProbe({ kind: next, baseUrl: baseUrl.trim(), apiKey: apiKey.trim() });
+  }
+
+  const input = cloudInput({ name, kind, baseUrl, apiKey, clearKey, model, systemPrompt, maxTokens, effort, temperature });
+  // Checked on the first submit, then as the fields change, so an error goes as its field is put right.
+  const [attempted, setAttempted] = useState(false);
+  const errors = attempted ? cloudErrors(input, harness, t, i18n) : {};
+
+  async function save() {
+    setError(null);
+    setAttempted(true);
+    if (Object.keys(cloudErrors(input, harness, t, i18n)).length) return;
+    try {
+      const saved = harness ? await update.mutateAsync({ ...input, id: harness.id }) : await create.mutateAsync(input);
+      onSaved(saved, !harness);
+    } catch (e) {
+      setError(refusal(e, t("sheet.saveFailed"), ["BAD_REQUEST"]));
+    }
   }
 
   async function remove() {
@@ -158,13 +110,13 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
-        void form.handleSubmit();
+        void save();
       }}
     >
-      <form.AppField name="name">
+      <FormField label={t("sheet.name")} htmlFor="harness-name" error={errors.name}>
         {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
-        {(f) => <f.TextField id="harness-name" label={t("sheet.name")} aria-required autoFocus />}
-      </form.AppField>
+        <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} aria-required autoFocus />
+      </FormField>
 
       <FormField label={t("cloud.provider")} htmlFor="harness-provider">
         <Select value={kind} onValueChange={(v) => changeKind(v as Kind)} disabled={!!harness}>
@@ -181,96 +133,97 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         </Select>
       </FormField>
 
-      <form.AppField name="baseUrl">
-        {(f) => (
-          <f.TextField
-            id="harness-base-url"
-            label={kind === "openai-compatible" ? t("cloud.baseUrl") : t("cloud.baseUrlOptional")}
-            hint={kind === "openai-compatible" ? t("cloud.baseUrlHint") : t("cloud.baseUrlDefault")}
-            type="url"
-            aria-required={kind === "openai-compatible"}
-            onBlur={leave}
-          />
-        )}
-      </form.AppField>
+      <FormField
+        label={kind === "openai-compatible" ? t("cloud.baseUrl") : t("cloud.baseUrlOptional")}
+        htmlFor="harness-base-url"
+        hint={kind === "openai-compatible" ? t("cloud.baseUrlHint") : t("cloud.baseUrlDefault")}
+        error={errors.baseUrl}
+      >
+        <Input
+          id="harness-base-url"
+          type="url"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          onBlur={leave}
+          aria-required={kind === "openai-compatible"}
+        />
+      </FormField>
 
-      <form.AppField name="apiKey">
-        {(f) => (
-          <f.TextField
-            id="harness-api-key"
-            label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")}
-            hint={t("cloud.apiKeyHint")}
-            type="password"
-            autoComplete="off"
-            aria-required={kind !== "openai-compatible" && !keySet}
-            placeholder={keySet ? t("cloud.keySet") : ""}
-            onBlur={leave}
-          />
-        )}
-      </form.AppField>
+      <FormField
+        label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")}
+        htmlFor="harness-api-key"
+        hint={t("cloud.apiKeyHint")}
+        error={errors.apiKey}
+      >
+        <Input
+          id="harness-api-key"
+          type="password"
+          autoComplete="off"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          onBlur={leave}
+          placeholder={keySet ? t("cloud.keySet") : ""}
+          aria-required={kind !== "openai-compatible" && !keySet}
+        />
+      </FormField>
       {harness?.apiKeySet && kind === "openai-compatible" && !apiKey && (
         <label className="flex items-center gap-2 text-[13px] text-muted">
-          <input type="checkbox" checked={clearKey} onChange={(e) => form.setFieldValue("clearKey", e.target.checked)} />
+          <input type="checkbox" checked={clearKey} onChange={(e) => setClearKey(e.target.checked)} />
           {t("cloud.removeKey")}
         </label>
       )}
 
-      <form.AppField name="model">
-        {(f) =>
-          picking ? (
-            <FormField label={t("cloud.model")} htmlFor="harness-model" error={f.state.meta.errors.filter(Boolean).join(" ") || undefined}>
-              <Select value={listed.some((m) => m.id === model) ? model : ""} onValueChange={(v) => (v === OTHER ? setOtherModel(true) : f.handleChange(v))}>
-                <SelectTrigger id="harness-model" className="w-full">
-                  <SelectValue placeholder={t("sheet.pickModel")} />
-                </SelectTrigger>
-                <SelectContent>
-                  {listed.map((m) => (
-                    <SelectItem key={m.id} value={m.id}>
-                      {m.label}
-                    </SelectItem>
-                  ))}
-                  <SelectItem value={OTHER}>{t("cloud.other")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-          ) : (
-            <f.TextField
-              id="harness-model"
-              label={t("cloud.model")}
-              hint={models.isError ? t("cloud.modelsFailed") : modelsInput ? undefined : t("cloud.enterKey")}
-            />
-          )
-        }
-      </form.AppField>
+      <FormField
+        label={t("cloud.model")}
+        htmlFor="harness-model"
+        hint={models.isError ? t("cloud.modelsFailed") : modelsInput ? undefined : t("cloud.enterKey")}
+        error={errors.model}
+      >
+        {picking ? (
+          <Select value={listed.some((m) => m.id === model) ? model : ""} onValueChange={(v) => (v === OTHER ? setOtherModel(true) : setModel(v))}>
+            <SelectTrigger id="harness-model" className="w-full">
+              <SelectValue placeholder={t("sheet.pickModel")} />
+            </SelectTrigger>
+            <SelectContent>
+              {listed.map((m) => (
+                <SelectItem key={m.id} value={m.id}>
+                  {m.label}
+                </SelectItem>
+              ))}
+              <SelectItem value={OTHER}>{t("cloud.other")}</SelectItem>
+            </SelectContent>
+          </Select>
+        ) : (
+          <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} aria-required />
+        )}
+      </FormField>
 
-      <form.AppField name="systemPrompt">
-        {(f) => <f.TextField id="harness-system-prompt" label={t("cloud.systemPrompt")} hint={t("cloud.systemPromptHint")} multiline rows={3} />}
-      </form.AppField>
+      <FormField label={t("cloud.systemPrompt")} htmlFor="harness-system-prompt" hint={t("cloud.systemPromptHint")} error={errors.systemPrompt}>
+        <Textarea id="harness-system-prompt" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={3} />
+      </FormField>
 
-      <form.AppField name="maxTokens">{(f) => <f.TextField id="harness-max-tokens" label={t("cloud.maxTokens")} type="number" step={1} />}</form.AppField>
+      <FormField label={t("cloud.maxTokens")} htmlFor="harness-max-tokens" error={errors.maxTokens}>
+        <Input id="harness-max-tokens" type="number" step={1} value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
+      </FormField>
 
       {kind === "openai-compatible" ? (
-        <form.AppField name="temperature">
-          {(f) => <f.TextField id="harness-temperature" label={t("cloud.temperature")} type="number" step={0.1} />}
-        </form.AppField>
+        <FormField label={t("cloud.temperature")} htmlFor="harness-temperature" error={errors.temperature}>
+          <Input id="harness-temperature" type="number" step={0.1} value={temperature} onChange={(e) => setTemperature(e.target.value)} />
+        </FormField>
       ) : (
-        <form.Field name="effort">
-          {(f) => (
-            <FormField label={t("cloud.effort")} htmlFor="harness-effort">
-              <Select value={f.state.value} onValueChange={(v) => f.handleChange(v as Effort | typeof NO_EFFORT)}>
-                <SelectTrigger id="harness-effort" className="w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={NO_EFFORT}>{t("cloud.effortDefault")}</SelectItem>
-                  <SelectItem value="low">{t("cloud.low")}</SelectItem>
-                  <SelectItem value="medium">{t("cloud.medium")}</SelectItem>
-                  <SelectItem value="high">{t("cloud.high")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-          )}
-        </form.Field>
+        <FormField label={t("cloud.effort")} htmlFor="harness-effort">
+          <Select value={effort} onValueChange={(v) => setEffort(v as Effort | typeof NO_EFFORT)}>
+            <SelectTrigger id="harness-effort" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_EFFORT}>{t("cloud.effortDefault")}</SelectItem>
+              <SelectItem value="low">{t("cloud.low")}</SelectItem>
+              <SelectItem value="medium">{t("cloud.medium")}</SelectItem>
+              <SelectItem value="high">{t("cloud.high")}</SelectItem>
+            </SelectContent>
+          </Select>
+        </FormField>
       )}
 
       {error && (
