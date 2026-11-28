@@ -1,7 +1,7 @@
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { fakeCodex } from "../fixtures/fake-codex-bin.ts";
 import { Sandbox } from "../sandbox/worker.ts";
 import { overlapping } from "../config.ts";
@@ -77,6 +77,56 @@ test("status reports the provider identity without any token", async () => {
   const asked = await codex.received();
   expect(asked.map((m) => m.method)).not.toContain("getAuthStatus");
   expect(JSON.stringify(asked)).not.toContain("includeToken");
+});
+
+describe("a Codex status read that fails", () => {
+  const failing = (env: NodeJS.ProcessEnv) => (env.FAKE_CODEX_EXIT_ON = "account/read");
+  const reported = [{ harness: "codex", identity: identityDigest("user-1", "acct-1"), signInNeeded: false }];
+
+  test("after a good one reports the last identity, which keeps the enrollment", async () => {
+    const { subs, codex } = await setup();
+    const env: NodeJS.ProcessEnv = codex.env;
+    expect(await subs.status()).toEqual(reported);
+    failing(env);
+    expect(await subs.status()).toEqual(reported);
+    // Read again once Codex answers.
+    delete env.FAKE_CODEX_EXIT_ON;
+    expect(await subs.status()).toEqual(reported);
+  });
+
+  test("first reports nothing", async () => {
+    const { subs, codex } = await setup();
+    failing(codex.env);
+    expect(await subs.status()).toEqual([]);
+  });
+
+  test("is never a sign-out, and a real one is still reported", async () => {
+    const { subs, codex } = await setup();
+    const env: NodeJS.ProcessEnv = codex.env;
+    expect(await subs.status()).toEqual(reported);
+    env.FAKE_CODEX_ACCOUNT = JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null });
+    expect(await subs.status()).toEqual([]);
+    // Signed out was read: a later failure doesn't bring the old identity back.
+    failing(env);
+    expect(await subs.status()).toEqual([]);
+  });
+
+  test("after the login file changed reports nothing", async () => {
+    const { subs, codex, home } = await setup();
+    expect(await subs.status()).toEqual(reported);
+    await writeFile(join(home, "auth.json"), JSON.stringify({ tokens: { access_token: "another sign-in" } }));
+    failing(codex.env);
+    expect(await subs.status()).toEqual([]);
+  });
+
+  test("confirms no enrollment with the identity it kept", async () => {
+    const { subs, codex } = await setup();
+    expect(await subs.status()).toEqual(reported);
+    failing(codex.env);
+    const sent: unknown[] = [];
+    expect(await subs.enroll("codex", "c".repeat(32), (m) => sent.push(m) > 0)).toMatchObject({ ok: false });
+    expect(sent).toEqual([]);
+  });
 });
 
 test("a poll's redaction knows the values of the supervisor's logins", async () => {
