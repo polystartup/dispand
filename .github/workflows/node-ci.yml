@@ -74,9 +74,39 @@ jobs:
         env:
           E2E_PROJECT: ${{ matrix.project }}
 
+  # The generated artifact's frame is sandboxed by each browser's own rules (docs/security/browser.md):
+  # the specs that prove it also run in Playwright's Firefox and WebKit. Only the assistant project's
+  # apps, and only those specs, so it costs one app and three tests a browser.
+  e2e-browsers:
+    name: Artifact frame isolation (${{ matrix.browser }})
+    if: inputs.e2e
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [firefox, webkit]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@90f833d396d0cc3674b631d2d225e306476c303a # v5.2.10
+      - run: pnpm install --frozen-lockfile
+      - id: playwright
+        run: echo "version=$(pnpm exec playwright --version)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ steps.playwright.outputs.version }}
+      # Not Chrome's libraries, which the runner image has: --with-deps installs this browser's.
+      - run: pnpm exec playwright install --with-deps ${{ matrix.browser }}
+      # E2E_PROJECT makes the config start only this project's app; the specs are the artifact's (they
+      # follow the first one, which sets up the app).
+      - run: pnpm run test:e2e --project=assistant --grep "the lawyer|generated artifact|running artifact"
+        env:
+          E2E_PROJECT: assistant
+          E2E_BROWSER: ${{ matrix.browser }}
+
   check:
     name: Check
-    needs: [static, test, e2e]
+    needs: [static, test, e2e, e2e-browsers]
     # Always runs, so a failed or cancelled job fails the required check instead of skipping it.
     if: always()
     runs-on: ubuntu-latest
@@ -85,7 +115,9 @@ jobs:
           STATIC: ${{ needs.static.result }}
           TEST: ${{ needs.test.result }}
           E2E: ${{ needs.e2e.result }}
+          BROWSERS: ${{ needs.e2e-browsers.result }}
           E2E_WANTED: ${{ inputs.e2e }}
         run: |
           [ "$STATIC" = success ] && [ "$TEST" = success ] || exit 1
-          [ "$E2E" = success ] || { [ "$E2E_WANTED" = false ] && [ "$E2E" = skipped ]; }
+          [ "$E2E" = success ] || { [ "$E2E_WANTED" = false ] && [ "$E2E" = skipped ]; } || exit 1
+          [ "$BROWSERS" = success ] || { [ "$E2E_WANTED" = false ] && [ "$BROWSERS" = skipped ]; }
