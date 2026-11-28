@@ -399,11 +399,13 @@ export const orgOwnerProcedure = base.use(orgOwner);
  * returned: each of its reads re-admits the caller first. The session must still be the one that
  * opened the stream (a Job's call has none to check), then `admit`, under the person alone, gives
  * the workspace the read runs in, or throws. So a stream ends on its next read once either is gone.
+ * Once a first `admit` admitted the person to a workspace, a later one may re-admit them in that
+ * workspace's scope (`runs.stream`, in one statement). `read` gets what `admit` gave.
  */
-export async function inStreamScope<T>(
+export async function inStreamScope<T, P extends Place>(
   context: InitialContext & { ownerId: string },
-  admit: () => Promise<{ organizationId: string; workspaceId: string }>,
-  read: () => Promise<T>,
+  admit: () => Promise<P>,
+  read: (admitted: P) => Promise<T>,
 ): Promise<T> {
   if (!context.job) {
     // Checked, never renewed: a stream can't hand the browser a refreshed cookie.
@@ -414,7 +416,7 @@ export async function inStreamScope<T>(
   // Only once admitted: an outsider keeps getting what `admit` answers.
   const refused = organizationRefusal(context.db, placed.organizationId, "stream");
   if (refused) throw refused;
-  return inScope({ userId: context.ownerId, ...placed }, read);
+  return inScope({ userId: context.ownerId, organizationId: placed.organizationId, workspaceId: placed.workspaceId }, () => read(placed));
 }
 
 /** How often an open stream asks the install again whether its organization is refused, while no event comes. */

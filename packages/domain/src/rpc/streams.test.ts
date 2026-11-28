@@ -58,6 +58,22 @@ test("runs.stream reads its snapshot and events in the run's workspace, from a c
   await stream.return?.(undefined);
 });
 
+test("runs.stream re-admits for a row event in one statement, in the run's workspace", { tags: ["pglite-only"] }, async () => {
+  const { owner, context, recorder } = await guarded();
+  const { runId } = await jobIdentity(owner);
+  const abort = new AbortController();
+  const stream = await call(router.runs.stream, { runId }, { context, signal: abort.signal });
+  const { run } = (await stream.next()).value as unknown as { run: never };
+  recorder.statements.length = 0;
+  owner.engine.events.publish(runId, { type: "run", run });
+  expect((await stream.next()).value).toMatchObject({ type: "run" });
+  // Besides the session's own check (Better Auth's, on its tables).
+  const { ownerId: userId, organizationId, workspaceId } = owner;
+  expect(recorder.statements.map((st) => st.scope)).toEqual([{ userId, organizationId, workspaceId }]);
+  abort.abort();
+  await stream.return?.(undefined);
+});
+
 test("a stream ends on its next event once its session is gone", { tags: ["pglite-only"] }, async () => {
   const { owner, context } = await guarded();
   const table = await call(router.tables.create, { name: "Projects" }, { context: owner });

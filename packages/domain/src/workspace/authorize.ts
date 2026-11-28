@@ -1,4 +1,4 @@
-import { and, asc, eq, isNotNull, isNull, or } from "drizzle-orm";
+import { and, asc, eq, exists, isNotNull, isNull, or } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { organizationMembers, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
@@ -36,6 +36,19 @@ const roleOf = (row: { organizationRole: string; workspaceRole: string | null })
 export async function authorize(db: Db | Tx, userId: string, organizationId: string, workspaceId: string): Promise<Role | null> {
   const [row] = await openable(db, userId).where(and(eq(workspaces.id, workspaceId), eq(workspaces.organizationId, organizationId)));
   return row ? roleOf(row) : null;
+}
+
+/** `authorize` as a condition another statement embeds: true when it would give a role (`roleOf` not null). */
+export function hasRole(db: Db | Tx, userId: string, organizationId: string, workspaceId: string) {
+  return exists(
+    openable(db, userId).where(
+      and(
+        eq(workspaces.id, workspaceId),
+        eq(workspaces.organizationId, organizationId),
+        or(eq(organizationMembers.role, "owner"), isNotNull(workspaceMembers.role)),
+      ),
+    ),
+  );
 }
 
 /**
