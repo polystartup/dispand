@@ -42,13 +42,29 @@ async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
   return ((await res.json()) as { json: T }).json;
 }
 
+/**
+ * `page.goto`, again when the app reloads the page under it: Playwright's Firefox and WebKit reload a page
+ * once, with the dev server, when a module they asked for first was optimized meanwhile (`chunk-reload.ts`).
+ */
+async function visit(page: Page, url: string) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await page.goto(url);
+    } catch (error) {
+      if (attempt === 3 || !/interrupted by another navigation|NS_BINDING_ABORTED/.test(String(error))) throw error;
+    }
+  }
+}
+
 async function signIn(page: Page) {
-  await page.goto("/login");
+  await visit(page, "/login");
   await hydrated(page);
   await page.getByLabel("Email").fill("ada@example.com");
   await page.getByLabel("Password").fill("correct horse battery");
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/$/);
+  // Home itself, not only its address: WebKit lets its load interrupt the next navigation.
+  await expect(page.getByRole("main").getByRole("heading").first()).toBeVisible();
 }
 
 type Applied = { items: { $item: number; tool: string; outcome: string; id?: string; error?: string }[]; next: string };
@@ -784,7 +800,8 @@ const ARTIFACT = `<style>body{font-family:system-ui,sans-serif;margin:0;padding:
   document.getElementById("chart").innerHTML = days.map((n, i) => '<rect x="' + (i * 60 + 10) + '" y="' + (110 - n * 16) + '" width="40" height="' + n * 16 + '" fill="#4f6bed"/>').join("");
   const r = { external: typeof window.probeLoaded };
   const attempt = (key, f) => { try { f(); r[key] = "open"; } catch (e) { r[key] = e.name; } };
-  attempt("cookie", () => document.cookie);
+  // Chromium throws for an opaque origin's cookies, WebKit answers with none: the page's own cookie below must stay out of sight.
+  try { r.cookie = document.cookie === "" ? "empty" : "visible"; } catch (e) { r.cookie = e.name; }
   attempt("storage", () => localStorage.length);
   attempt("parent", () => parent.document.body);
   fetch("/api/rpc/artifact-probe").then(() => "reached", () => "blocked").then((rpc) => { document.getElementById("out").textContent = JSON.stringify({ ...r, rpc }); });
@@ -821,9 +838,11 @@ test("a generated artifact shows as a card, runs only after Run, in a frame that
     if (request.url().endsWith("/api/rpc/artifacts/get")) codeReads++;
   });
 
+  // A cookie the page can read: what a frame that shares its origin would see.
+  await context.addCookies([{ name: "page-cookie", value: "1", url: SERVER }]);
   const before = model!.requests.length;
   model!.script(use("artifact_show", { title: "Weekly tasks", format: "html", code: ARTIFACT }, "Here is the chart."), () => ({ text: "The chart is above." }));
-  const response = await page.goto("/assistant?run=new");
+  const response = await visit(page, "/assistant?run=new");
   // The page policy the frame inherits, as served: what the checks below rest on.
   expect(response!.headers()["content-security-policy"]).toContain("script-src 'self' 'unsafe-inline'");
   expect(response!.headers()["content-security-policy"]).toContain("style-src 'self' 'unsafe-inline'");
@@ -861,9 +880,13 @@ test("a generated artifact shows as a card, runs only after Run, in a frame that
   const frame = card.frameLocator("iframe");
   // The inline bootstrap and the artifact's inline script ran under the page policy; nothing reached out.
   await expect(frame.locator("#out")).not.toHaveText("pending");
-  expect(JSON.parse((await frame.locator("#out").textContent())!)).toEqual({
+  const probed = JSON.parse((await frame.locator("#out").textContent())!) as { cookie: string };
+  expect(["SecurityError", "empty"]).toContain(probed.cookie);
+  // The page does read the cookie: an empty answer is the frame's isolation, not a cookie missing.
+  expect(await page.evaluate(() => document.cookie)).toContain("page-cookie=1");
+  expect({ ...probed, cookie: "" }).toEqual({
     external: "undefined",
-    cookie: "SecurityError",
+    cookie: "",
     storage: "SecurityError",
     parent: "SecurityError",
     rpc: "blocked",
@@ -912,10 +935,18 @@ test("a generated artifact shows as a card, runs only after Run, in a frame that
   await expect(page.frameLocator("#bare").locator("#ran")).toHaveText("inline only");
   await page.waitForTimeout(500);
   expect(reached).toEqual([]);
-  // The probe host would have answered: a page that may load it does.
+  // The probe host would have answered, a sandboxed frame too: a page that may load it does, from its own
+  // frame, which shows the browser's requests from such a frame are seen here.
   const control = await context.newPage();
   await control.goto(`${PROBE}/control`);
   expect(reached).toEqual([`${PROBE}/control`]);
+  await control.evaluate((probe) => {
+    const framed = document.createElement("iframe");
+    framed.setAttribute("sandbox", "allow-scripts");
+    framed.srcdoc = `<script src="${probe}/control.js"></script>`;
+    document.body.appendChild(framed);
+  }, PROBE);
+  await expect.poll(() => reached).toEqual([`${PROBE}/control`, `${PROBE}/control.js`]);
   await control.close();
 
   // From history: the card again, nothing run, no tool call; Run renders the stored code.
@@ -951,7 +982,7 @@ test("a running artifact expands to most of the window, follows the theme, and c
   await page.emulateMedia({ colorScheme: "light" });
   await signIn(page);
   model!.script(use("artifact_show", { title: "Weekly tasks", format: "html", code: THEMED }, "Here is the chart."), () => ({ text: "The chart is above." }));
-  await page.goto("/assistant?run=new");
+  await visit(page, "/assistant?run=new");
   const chat = page.getByRole("region", { name: "Stem", exact: true });
   await chat.getByLabel("Message", { exact: true }).fill("Chart my week again.");
   await chat.getByRole("button", { name: "Send", exact: true }).click();
@@ -1044,7 +1075,7 @@ test.describe("French browser", () => {
       data: { email: "ada@example.com", password: "correct horse battery" },
     });
     expect(login.ok()).toBe(true);
-    await page.goto("/assistant?run=new");
+    await visit(page, "/assistant?run=new");
     await expect(page.locator("html")).toHaveAttribute("lang", "fr");
     const chat = page.getByRole("region", { name: "Stem", exact: true });
     const box = chat.getByRole("textbox", { name: "Message", exact: true });
