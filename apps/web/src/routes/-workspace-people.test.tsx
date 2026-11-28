@@ -187,7 +187,7 @@ test("handing ownership over reads the person's roles again, then says who owns 
     ],
   });
   open();
-  await user.click(await screen.findByRole("button", { name: "Make Sam the organization’s owner" }));
+  await user.click(await screen.findByRole("button", { name: "Make owner: Sam" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Make owner" }));
   // As over a network: the answer comes once the dialog has closed and given its focus away.
   await vi.waitFor(() => expect(document.activeElement?.textContent).toBe("Saving…"));

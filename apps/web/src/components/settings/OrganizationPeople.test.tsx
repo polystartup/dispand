@@ -76,7 +76,7 @@ test("the owner removes a person from the organization without deleting them, af
   fake.organization.removeMember.mockResolvedValue({ removed: true });
   mount();
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Remove Pat from the organization" }));
+  await user.click(await screen.findByRole("button", { name: "Remove from organization: Pat" }));
   const dialog = screen.getByRole("dialog", { name: "Remove Pat from the organization?" });
   expect(fake.organization.removeMember).not.toHaveBeenCalled();
   await user.click(within(dialog).getByRole("button", { name: "Remove from organization" }));
@@ -90,7 +90,7 @@ test("handing ownership over says what the owner keeps, and tells the page once 
   fake.organization.transferOwnership.mockResolvedValue({ transferred: true });
   mount();
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Make Pat the organization’s owner" }));
+  await user.click(await screen.findByRole("button", { name: "Make owner: Pat" }));
   const dialog = screen.getByRole("dialog", { name: "Make Pat the owner?" });
   expect(within(dialog).getByText(/you lose access to all of them until Pat gives you one/)).toBeTruthy();
   expect(within(dialog).getByText(/Pat \(pat@example\.com\) gets every right/)).toBeTruthy();
@@ -110,7 +110,7 @@ test("a transfer that ends after the page was left still tells it, so it reads i
   );
   const { unmount } = mount();
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Make Pat the organization’s owner" }));
+  await user.click(await screen.findByRole("button", { name: "Make owner: Pat" }));
   await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Make owner" }));
   await waitFor(() => expect(fake.organization.transferOwnership).toHaveBeenCalled());
   unmount();
@@ -123,7 +123,7 @@ test("an owner with roles of their own keeps only those", async () => {
   const roles = directory.workspaces.map(({ workspaceId }) => ({ workspaceId, role: "member" as const }));
   fake.organization.directory.mockResolvedValue({ ...directory, people: [{ ...ada!, workspaces: roles }, ...others] });
   mount();
-  await userEvent.setup().click(await screen.findByRole("button", { name: "Make Sam the organization’s owner" }));
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Make owner: Sam" }));
   expect(within(screen.getByRole("dialog")).getByText(/You keep only your roles in Engineering and Operations\./)).toBeTruthy();
 });
 

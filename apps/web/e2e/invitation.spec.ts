@@ -83,7 +83,7 @@ test("an invitation registers a new recipient, then returns an existing account 
     };
     await page.goto("/settings/people");
     await hydrated(page);
-    const make = page.getByRole("button", { name: "Make Pat the organization’s owner" });
+    const make = page.getByRole("button", { name: "Make owner: Pat" });
     await make.scrollIntoViewIfNeeded();
     await shot("organization-members");
     await make.click();
@@ -102,7 +102,7 @@ test("an invitation registers a new recipient, then returns an existing account 
     // The owner removes them from the organization; their account stays.
     await page.reload();
     await hydrated(page);
-    await page.getByRole("button", { name: "Remove Pat from the organization" }).click();
+    await page.getByRole("button", { name: "Remove from organization: Pat" }).click();
     await shot("remove-from-organization");
     await page.getByRole("dialog", { name: "Remove Pat from the organization?" }).getByRole("button", { name: "Remove from organization" }).click();
     await expect(page.getByText("Pat removed from the organization.")).toBeVisible();
