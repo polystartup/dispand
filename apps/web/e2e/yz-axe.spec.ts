@@ -113,6 +113,8 @@ let made:
       skillName: string;
       runnerName: string;
       toolName: string;
+      stemId: string;
+      teammate: string;
     }>
   | undefined;
 function seed(page: Page) {
@@ -146,6 +148,23 @@ function seed(page: Page) {
     mcp = await startFakeMcp([{ name: "search_cases", description: "Search the cases", annotations: { readOnlyHint: true } }]);
     const toolName = `${name} tool`;
     await rpc(page, "tools/add", { name: toolName, url: mcp.url, transport: "streamable-http" });
+    // A teammate, who joined through an invitation: someone to remove or delete.
+    const teammate = `${name} teammate`;
+    const [scope] = await rpc<{ workspaceId: string; organizationId: string }[]>(page, "workspace/managed");
+    const email = `axe-${Date.now()}@example.com`;
+    const { token } = await rpc<{ token: string }>(page, "workspace/invite", {
+      workspaceId: scope!.workspaceId,
+      organizationId: scope!.organizationId,
+      email,
+      role: "member",
+    });
+    const joined = await fetch(new URL("/api/rpc/workspace/registerInvitation", page.url()), {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-csrf-token": "orpc" },
+      body: JSON.stringify({ json: { token, email, name: teammate, password: "a-teammate-password" } }),
+    });
+    expect(joined.ok, `registerInvitation: ${joined.status}`).toBe(true);
+    const { agentId: stemId } = await rpc<{ agentId: string }>(page, "agents/assistant");
     const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
@@ -161,7 +180,7 @@ function seed(page: Page) {
     });
     const home = await rpc<{ id: string }>(page, "pages/home");
     await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
-    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName, skillName, runnerName, toolName };
+    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName, skillName, runnerName, toolName, stemId, teammate };
   })();
   return made;
 }
@@ -424,6 +443,41 @@ for (const scheme of ["light", "dark"] as const) {
         },
       },
       {
+        name: "the invitation dialog",
+        route: () => "/settings/people",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Invite person" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the invitation dialog once its link is made",
+        route: () => "/settings/people",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Invite person" }).click();
+          await dialog(page).getByLabel("Email address").fill("axe-invitee@example.com");
+          await dialog(page).getByRole("button", { name: "Create link" }).click();
+          await expect(dialog(page).getByLabel("Invitation link")).toBeVisible();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to remove a person's workspace access",
+        route: () => "/settings/people",
+        open: async (page, { teammate }) => {
+          await page.getByRole("button", { name: `Remove access for ${teammate}` }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to delete a person from the organization",
+        route: () => "/settings/people",
+        open: async (page, { teammate }) => {
+          await page.getByRole("button", { name: `Delete ${teammate} from the organization` }).click();
+          return dialog(page);
+        },
+      },
+      {
         name: "the profile dialog",
         route: () => "/help",
         open: async (page) => {
@@ -490,9 +544,10 @@ for (const scheme of ["light", "dark"] as const) {
       }
     });
 
-    test("an agent's, a table's and a workflow's pages have none", async ({ page }) => {
-      const { agentId, tableId, workflowId } = await seed(page);
+    test("an agent's, Stem's, a table's and a workflow's pages have none", async ({ page }) => {
+      const { agentId, stemId, tableId, workflowId } = await seed(page);
       await accessible(page, `/settings/agents/${agentId}`, { ready: page.getByLabel("System prompt") });
+      await accessible(page, `/settings/agents/${stemId}`, { ready: page.getByLabel("System prompt") });
       await accessible(page, `/settings/data/${tableId}`, { ready: page.getByRole("link", { name: /example\.com/ }) });
       await accessible(page, `/settings/workflows/${workflowId}`, { ready: page.getByLabel("Workflow name") });
     });
