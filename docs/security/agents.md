@@ -138,7 +138,7 @@
   as a restricted session (protocol 26; on Codex, protocol 29), on Claude Code or Codex: the runner itself gives it no skill, memory or consult, no MCP
   server but the Job's own, and no way to the shell, files or network, whatever the start holds. On Claude Code: no
   built-in tool (nor the CLI's server-side advisor, switched off in its environment) and none of the user's settings. On
-  Codex (checked with 0.169.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
+  Codex (checked with 0.171.0 on what the model is sent, `codex/restricted-tools.test.ts`): every native tool a switch
   removes is off (shell, view_image, web search, image generation, browser and computer use, apps and plugins, subagents,
   goals, sleep, asking the person), as are hooks, memories, the skills catalog and every MCP server of the user's config;
   its turns get no execution environment, under a read-only profile with no network. What the model keeps is code
