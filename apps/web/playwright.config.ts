@@ -29,9 +29,9 @@ const server = (port: number) => ({
 const specs = (...names: string[]) => new RegExp(`/(${names.join("|")})\\.spec\\.ts$`);
 /** The specs of "main-2" to "main-4", besides the ones every chain runs. */
 const CHAINS = [
-  ["skills", "tools", "widgets", "yz-axe"],
+  ["skills", "tools", "widgets"],
   ["workflows", "y-journey", "yx-memory"],
-  ["yx-memory-pages", "yy-data-steps", "yy-pages", "yz-assistant"],
+  ["yx-memory-pages", "yy-data-steps", "yy-pages", "yz-assistant", "yz-axe"],
 ];
 
 /** The projects of the specs that share an app and its owner: "main-1" takes every spec the others don't name. */
