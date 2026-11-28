@@ -207,32 +207,36 @@ export class Subscriptions {
   }
 
   /**
-   * Renews the Codex login in the supervisor: one provider call however many ask at once. After
-   * `RENEWAL_ATTEMPTS` failures in a row, none at all until the person signs in again, and the
-   * status says so: one sign-in request, never a retry loop.
+   * Renews the Codex login in the supervisor: one provider call however many ask at once.
+   * `served` says whether the renewed login serves (Codex reports the account even when its
+   * refresh failed): one that doesn't is a failure. After `RENEWAL_ATTEMPTS` failures in a row,
+   * none at all until the person signs in again, and the status says so: one sign-in request,
+   * never a retry loop.
    */
-  renew(): Promise<boolean> {
-    this.renewing ??= this.renewOnce().finally(() => {
+  renew(served: () => Promise<boolean> = () => Promise.resolve(true)): Promise<boolean> {
+    this.renewing ??= this.renewOnce(served).finally(() => {
       this.renewing = undefined;
     });
     return this.renewing;
   }
 
-  private async renewOnce(): Promise<boolean> {
+  private async renewOnce(served: () => Promise<boolean>): Promise<boolean> {
     const codex = this.codex;
     if (!codex || (await this.givenUp())) return false;
     const stamp = await this.stamp();
-    try {
-      await codexRenew(codex.path, codex.env, codex.timeoutMs);
+    if (
+      await codexRenew(codex.path, codex.env, codex.timeoutMs)
+        .then(served)
+        .catch(() => false)
+    ) {
       this.failures = 0;
       return true;
-    } catch {
-      if (++this.failures >= RENEWAL_ATTEMPTS) {
-        this.gaveUp.set("codex", stamp);
-        console.error("dispand-runner: the Codex subscription can't renew: sign in again with `dispand-runner sign-in codex`");
-      }
-      return false;
     }
+    if (++this.failures >= RENEWAL_ATTEMPTS) {
+      this.gaveUp.set("codex", stamp);
+      console.error("dispand-runner: the Codex subscription can't renew: sign in again with `dispand-runner sign-in codex`");
+    }
+    return false;
   }
 
   /**
