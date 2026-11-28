@@ -58,6 +58,9 @@
 - A cloud harness's key is sent only to its base URL, which must be `https://` when a key is
   set (plain http only to loopback); listing its models follows no redirect, and a provider's
   error reaches the owner as a short reason, never its body.
+  A base URL carries no user name or password (a save that has one is refused: the key has its
+  own sealed field), and one an older save kept is never returned: views show the address without
+  it, and an update that sends the address back as shown keeps what is stored.
   A harness's runner and base URL are its workspace managers' to set, whoever made it: every
   agent and workflow of the workspace that uses the harness sends its prompts and inputs there,
   the workflows of other members included. The base URL may be loopback or on the deployment's

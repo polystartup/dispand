@@ -41,7 +41,9 @@ export function cloudInput(v: Values) {
 
 /** The fields the procedure would refuse, each with its reason in the page's language. */
 export function cloudErrors(input: ReturnType<typeof cloudInput>, harness: CloudHarness | undefined, t: TFunction<"harnesses">, i18n: i18n) {
-  const errors = fieldErrors(CloudFields.safeParse(input).error, (field) => t(`cloud.invalid.${field}` as never));
+  const errors = fieldErrors(CloudFields.safeParse(input).error, (field, issue) =>
+    t(`cloud.invalid.${field === "baseUrl" && issue.code === "custom" ? "baseUrlCredentials" : field}` as never),
+  );
   // Not on an address that failed to parse: the rule reads it.
   if (errors.baseUrl) return errors;
   // As on the server: an update that sends no key keeps the stored one, but only for the URL it was saved for.
