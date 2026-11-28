@@ -28,10 +28,12 @@ export function OrganizationPeople({ retentionDays, onTransferred }: { retention
   const unassign = useMutation(orpc.organization.unassign.mutationOptions());
   const archive = useMutation(orpc.organization.archiveMember.mutationOptions());
   const remove = useMutation(orpc.organization.removeMember.mutationOptions());
+  // Who was confirmed as the new owner: a later read of the directory may not list them.
+  const [heir, setHeir] = useState("");
   const transfer = useMutation(
     orpc.organization.transferOwnership.mutationOptions({
       // The mutation's own callback, not one of `mutate`'s: the page reads its rights again even if left meanwhile.
-      onSuccess: (_done, { userId }) => onTransferred(directory.data!.people.find((p) => p.userId === userId)!.name),
+      onSuccess: () => onTransferred(heir),
     }),
   );
   const failed = assign.error ?? unassign.error ?? archive.error ?? remove.error ?? transfer.error;
@@ -74,7 +76,10 @@ export function OrganizationPeople({ retentionDays, onTransferred }: { retention
             kept={kept}
             focusStatus={() => status.current?.focus()}
             onRemove={() => act(() => remove.mutate({ userId: person.userId }, done(t("organizationPeople.left", { name: person.name }))))}
-            onTransfer={() => act(() => transfer.mutate({ userId: person.userId }))}
+            onTransfer={() => {
+              setHeir(person.name);
+              act(() => transfer.mutate({ userId: person.userId }));
+            }}
             onAssign={(workspaceId, role) =>
               act(() =>
                 assign.mutate(
@@ -300,7 +305,7 @@ function Confirm({
         }}
       >
         <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>{effect}</DialogDescription>
+        <DialogDescription className="wrap-anywhere">{effect}</DialogDescription>
         <div className="flex justify-end gap-2">
           <DialogClose asChild>
             <Button variant="outline">{t("actions.cancel")}</Button>
