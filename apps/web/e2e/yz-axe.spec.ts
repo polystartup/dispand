@@ -1,13 +1,21 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test, type Page } from "@playwright/test";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, relative } from "node:path";
+import { pathToFileURL } from "node:url";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { rpc, stem, writer } from "./fixtures.ts";
 import { hydrated } from "./hydrated.ts";
 
 // The pages a person lands on, scanned with axe (WCAG 2.2 A and AA), once the chain before it has made
 // an agent, a table and a workflow: all of them in light, the ones that vary with colour (axe checks
 // contrast) in dark too. A page with a violation fails with the rule, the elements and what to do.
-// Dialogs and sheets are not scanned yet.
+// The dialogs, sheets and menus opened from them are scanned while open, in both too.
 
+// A menu is not a modal to axe, so the page behind it, hidden from assistive technology, counts as
+// hiding focusable content (the dialogs and sheets pass): the issue listing the open findings.
+const MENU_KNOWN = ["aria-hidden-focus"];
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 async function violations(page: Page, known: string[]) {
@@ -20,14 +28,44 @@ async function violations(page: Page, known: string[]) {
 /**
  * `ready`: what shows the page's own content has rendered (a heading by default): the shell's `main`
  * is there before a route's data loads. `known`: rules a page is allowed to break until its issue is fixed.
+ * `open`: opens what is scanned with the page (a dialog, a sheet, a menu) and waits for it to show.
  */
-async function accessible(page: Page, route: string, { ready = page.getByRole("heading").first(), known = [] as string[] } = {}) {
+async function accessible(
+  page: Page,
+  route: string,
+  { ready = page.getByRole("heading").first(), known = [] as string[], open }: { ready?: Locator; known?: string[]; open?: () => Promise<void> } = {},
+) {
   await page.goto(route);
   await hydrated(page);
   await expect(page.getByRole("main")).toBeVisible();
   await expect(ready).toBeVisible();
-  // A page is scanned again until what it loads has landed.
-  await expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
+  await open?.();
+  await scanned(page, known);
+}
+
+/** What is showing is scanned again until what it loads has landed. */
+const scanned = (page: Page, known: string[] = []) => expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
+
+/** A local Git repository holding the law-firm plugin and, in another, a marketplace listing it (the dev server takes file:// URLs for e2e only). */
+function lawFirmMarketplace() {
+  const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
+  const repo = (dir: string, files: Record<string, string>) => {
+    for (const [path, content] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true });
+      writeFileSync(join(dir, path), content);
+    }
+    for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]]) execFileSync("git", args, { cwd: dir, env });
+    return pathToFileURL(dir).href;
+  };
+  const root = join(import.meta.dirname, "../../../packages/domain/src/plugins/fixtures/law-firm");
+  const files = Object.fromEntries(
+    readdirSync(root, { recursive: true, withFileTypes: true })
+      .filter((d) => d.isFile())
+      .map((d) => [relative(root, join(d.parentPath, d.name)), readFileSync(join(d.parentPath, d.name), "utf8")]),
+  );
+  const dir = mkdtempSync(join(tmpdir(), "dispand-axe-"));
+  const plugin = repo(join(dir, "plugin"), files);
+  return repo(join(dir, "market"), { ".claude-plugin/marketplace.json": JSON.stringify({ name: "axe-firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin } }] }) });
 }
 
 /** What the pages show, made once for the run, by the first test that needs it. */
@@ -97,6 +135,139 @@ for (const scheme of ["light", "dark"] as const) {
         await accessible(page, route, ready ? { ready } : {});
       });
     }
+
+    // What opens on top of a page: a dialog or sheet (the rest of the page is hidden from axe while it
+    // is open) or a menu.
+    const dialog = (page: Page) => page.getByRole("dialog");
+    const link = (page: Page) => page.getByRole("link", { name: /example\.com/ });
+    const overlays: {
+      name: string;
+      route: (ids: Awaited<ReturnType<typeof seed>>) => string;
+      open: (page: Page) => Promise<Locator>;
+      /** What shows the page itself has loaded: a heading by default. */
+      ready?: (page: Page) => Locator;
+      known?: string[];
+    }[] = [
+      {
+        name: "the new harness sheet",
+        route: () => "/settings/harnesses",
+        open: async (page) => {
+          await page.getByRole("button", { name: "New harness" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "a cloud harness's sheet",
+        route: () => "/settings/harnesses",
+        open: async (page) => {
+          await page.getByRole("button", { name: /Writer's model/ }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the new trigger sheet of an agent",
+        route: ({ agentId }) => `/settings/agents/${agentId}`,
+        open: async (page) => {
+          await page.getByRole("tab", { name: "Triggers" }).click();
+          await page.getByRole("button", { name: "New trigger" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the Add widget sheet of Home",
+        route: () => "/",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Add widget" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to delete rows",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("checkbox", { name: "Select row" }).first().check();
+          await page.getByRole("button", { name: "Delete 1 row" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to delete a field",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "Field menu: Repository URL" }).click();
+          await page.getByRole("menuitem", { name: "Delete field" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "a field's menu",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "Field menu: Repository URL" }).click();
+          return page.getByRole("menu");
+        },
+        known: MENU_KNOWN,
+      },
+      {
+        name: "the account menu",
+        route: () => "/help",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Account menu" }).click();
+          return page.getByRole("menu");
+        },
+        known: MENU_KNOWN,
+      },
+      {
+        name: "the profile dialog",
+        route: () => "/help",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Account menu" }).click();
+          await page.getByRole("menuitem", { name: "Your profile" }).click();
+          return dialog(page);
+        },
+      },
+    ];
+    for (const { name, route, open, ready, known } of overlays) {
+      test(`${name} has no accessibility violation`, async ({ page }) => {
+        const ids = await seed(page);
+        await accessible(page, route(ids), { ready: ready?.(page), known, open: async () => expect(await open(page)).toBeVisible() });
+      });
+    }
+
+    test("the plugin's install, set up and remove sheets have none", async ({ page }) => {
+      test.setTimeout(120_000);
+      await seed(page);
+      const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: lawFirmMarketplace() });
+      try {
+        await page.goto("/settings/plugins");
+        await hydrated(page);
+        await page.getByRole("button", { name: "Install law-firm" }).click();
+        const sheet = page.getByRole("dialog");
+        await expect(sheet.getByRole("checkbox", { name: /legal-research/ })).toBeVisible();
+        await scanned(page);
+        // No runner here to install it natively on.
+        await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).uncheck();
+        await sheet.getByRole("button", { name: "Install", exact: true }).click();
+        await expect(sheet.getByText("Installed in the workspace.")).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        await page.goto("/settings/plugins/installed");
+        await page.getByRole("button", { name: "Set up law-firm" }).click();
+        await expect(sheet.getByRole("heading", { name: "Set up law-firm" })).toBeVisible();
+        await scanned(page);
+        await page.keyboard.press("Escape");
+        await page.getByRole("button", { name: "Remove law-firm" }).click();
+        await expect(sheet.getByRole("button", { name: "Remove plugin" })).toBeVisible();
+        await scanned(page);
+        await sheet.getByRole("button", { name: "Remove plugin" }).click();
+        await expect(page.getByRole("listitem", { name: "law-firm" })).toHaveCount(0);
+      } finally {
+        await rpc(page, "marketplaces/remove", { id: market.id });
+      }
+    });
 
     test("an agent's, a table's and a workflow's pages have none", async ({ page }) => {
       const { agentId, tableId, workflowId } = await seed(page);
