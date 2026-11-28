@@ -99,7 +99,7 @@ test("grid and table widgets show a table's rows and follow every change live", 
   // A name edited in Data in a second tab shows in both widgets, without a reload.
   const other = await context.newPage();
   await other.goto(`/settings/data/${table.id}`);
-  const nameCell = other.getByRole("gridcell", { name: "Name", exact: true }).first();
+  const nameCell = other.locator(`[role=gridcell][data-field="Name"]`).first();
   await nameCell.click();
   await other.keyboard.press("Enter");
   await other.getByRole("textbox", { name: "Name", exact: true }).fill("Dispand 2");

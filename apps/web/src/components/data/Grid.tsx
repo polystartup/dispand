@@ -349,7 +349,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       key={cell.id}
                       role="gridcell"
                       data-cell={`${r}:${c}`}
-                      aria-label={field.name}
+                      data-field={field.name}
                       aria-selected={isActive}
                       onClick={(e) => {
                         // A click inside the open editor (caret, text, a choice) stays there.
