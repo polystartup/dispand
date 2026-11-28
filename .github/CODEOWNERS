@@ -3,3 +3,5 @@
 /.github/CODEOWNERS  @politician
 /.github/workflows/  @politician
 AGENTS*.md           @politician
+/SECURITY.md         @politician
+/.github/scrub*      @politician
