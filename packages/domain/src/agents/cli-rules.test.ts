@@ -61,11 +61,11 @@ test("CLI rule controls require the agent's owner session and are absent from Jo
   }
   await expect(call(router.agents.cliRules, { id: agent.id }, { context: job })).rejects.toMatchObject({
     code: "FORBIDDEN",
-    data: { key: "plugins.ownerSession" },
+    data: { key: "auth.personOnly" },
   });
   await expect(call(router.agents.removeCliRule, { id: agent.id, ...rules[0]! }, { context: job })).rejects.toMatchObject({
     code: "FORBIDDEN",
-    data: { key: "plugins.ownerSession" },
+    data: { key: "auth.personOnly" },
   });
   const guest = { ...context, headers: new Headers() };
   await expect(call(router.agents.cliRules, { id: agent.id }, { context: guest })).rejects.toMatchObject({ code: "UNAUTHORIZED" });

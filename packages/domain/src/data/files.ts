@@ -18,7 +18,7 @@ import {
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { memberProcedure } from "../rpc/context.ts";
+import { memberProcedure, notJob } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { readableRun } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
@@ -95,17 +95,19 @@ const upload = memberProcedure.input(z.object({ tableId: z.string().max(64), fil
  * (`takeChatFiles`), and removed a day later if it never is. It counts in the organization's
  * total from now on.
  */
-const hold = memberProcedure.input(z.object({ file: z.file() })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
-  if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
-  const bytes = new Uint8Array(await input.file.arrayBuffer());
-  const workspaceId = context.access.workspaceId;
-  const [row] = await storeOrRefuse(context.db, workspaceId, (tx) =>
-    storeAttachments(tx, context.files, [{ ownerId: context.actorId, workspaceId, name: input.file.name, bytes }]),
-  );
-  counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
-  return attachmentView(row!);
-});
+const hold = memberProcedure
+  .use(notJob)
+  .input(z.object({ file: z.file() }))
+  .handler(async ({ input, context }) => {
+    if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
+    const bytes = new Uint8Array(await input.file.arrayBuffer());
+    const workspaceId = context.access.workspaceId;
+    const [row] = await storeOrRefuse(context.db, workspaceId, (tx) =>
+      storeAttachments(tx, context.files, [{ ownerId: context.actorId, workspaceId, name: input.file.name, bytes }]),
+    );
+    counts.counter("dispand.attachments.stored").add(1, { "dispand.attachment.source": "chat" });
+    return attachmentView(row!);
+  });
 
 /**
  * Gives files held for the owner (`hold`) to the Job a chat message of theirs goes to, in the

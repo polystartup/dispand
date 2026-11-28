@@ -26,7 +26,7 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { type InitialContext, inPlacedScope, inStreamScope, untilRefused, memberProcedure, signedInProcedure } from "../rpc/context.ts";
+import { type InitialContext, inPlacedScope, inStreamScope, untilRefused, memberProcedure, signedInProcedure, notJob } from "../rpc/context.ts";
 import { authorize, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
@@ -407,33 +407,39 @@ const sendChat = memberProcedure
   });
 
 /** The owner sends a pending queued message now, into the agent's running turn (`Engine.steerQueued`). */
-const steerQueued = memberProcedure.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(asReader(context), input.runId);
-  await context.engine.steerQueued(input.runId, input.queuedId).catch(engineError);
-});
+const steerQueued = memberProcedure
+  .use(notJob)
+  .input(z.object({ runId: z.string(), queuedId: z.string().max(64) }))
+  .handler(async ({ input, context }) => {
+    await requireOwnedRun(asReader(context), input.runId);
+    await context.engine.steerQueued(input.runId, input.queuedId).catch(engineError);
+  });
 
 /** The owner changes a message queued while the chat was busy, while it is still pending. */
 const editQueued = memberProcedure
+  .use(notJob)
   .input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) }))
   .handler(async ({ input, context }) => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
     await requireOwnedRun(asReader(context), input.runId);
     await context.engine.editQueued(input.runId, input.queuedId, input.text).catch(engineError);
   });
 
 /** The owner takes back a queued message not sent yet (pending, or failed). */
-const removeQueued = memberProcedure.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(asReader(context), input.runId);
-  await context.engine.removeQueued(input.runId, input.queuedId).catch(engineError);
-});
+const removeQueued = memberProcedure
+  .use(notJob)
+  .input(z.object({ runId: z.string(), queuedId: z.string().max(64) }))
+  .handler(async ({ input, context }) => {
+    await requireOwnedRun(asReader(context), input.runId);
+    await context.engine.removeQueued(input.runId, input.queuedId).catch(engineError);
+  });
 
-const interruptChat = memberProcedure.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  await requireOwnedRun(asReader(context), input.runId);
-  return context.engine.interruptChat(input.runId, input.turnId).catch(engineError);
-});
+const interruptChat = memberProcedure
+  .use(notJob)
+  .input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) }))
+  .handler(async ({ input, context }) => {
+    await requireOwnedRun(asReader(context), input.runId);
+    return context.engine.interruptChat(input.runId, input.turnId).catch(engineError);
+  });
 
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
 const stop = memberProcedure.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {

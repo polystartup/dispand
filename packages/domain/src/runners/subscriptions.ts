@@ -8,7 +8,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { runners, subscriptionChallenges, subscriptionEnrollments } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { memberProcedure } from "../rpc/context.ts";
+import { memberProcedure, notJob } from "../rpc/context.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
 import { authorize } from "../workspace/authorize.ts";
 import { liveEnrollments } from "./enrollments.ts";
@@ -162,40 +162,39 @@ export async function confirmEnrollment(
 }
 
 // A person's own: never a Job's, and never on someone else's behalf.
-const person = memberProcedure.use(async ({ context, next }) => {
-  if (context.jobPlace) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  return next();
-});
 
 /** Starts an enrollment on a live runner of the workspace, for the caller only: the challenge to type on that runner. */
-const startEnrollment = person.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
-  const { workspaceId } = context.access;
-  const [runner] = await context.db
-    .select({ id: runners.id })
-    .from(runners)
-    .where(and(eq(runners.id, input.runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
-  if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
-  const challenge = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
-  // The caller's earlier challenges for this runner and every expired one go: a person has one pending per runner.
-  await context.db
-    .delete(subscriptionChallenges)
-    .where(
-      and(
-        eq(subscriptionChallenges.workspaceId, workspaceId),
-        or(
-          lt(subscriptionChallenges.expiresAt, new Date()),
-          and(eq(subscriptionChallenges.runnerId, runner.id), eq(subscriptionChallenges.userId, context.actorId)),
+const startEnrollment = memberProcedure
+  .use(notJob)
+  .input(z.object({ runnerId: z.string() }))
+  .handler(async ({ input, context }) => {
+    const { workspaceId } = context.access;
+    const [runner] = await context.db
+      .select({ id: runners.id })
+      .from(runners)
+      .where(and(eq(runners.id, input.runnerId), eq(runners.workspaceId, workspaceId), isNull(runners.revokedAt)));
+    if (!runner) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
+    const challenge = randomBytes(32).toString("base64url");
+    const expiresAt = new Date(Date.now() + CHALLENGE_TTL_MS);
+    // The caller's earlier challenges for this runner and every expired one go: a person has one pending per runner.
+    await context.db
+      .delete(subscriptionChallenges)
+      .where(
+        and(
+          eq(subscriptionChallenges.workspaceId, workspaceId),
+          or(
+            lt(subscriptionChallenges.expiresAt, new Date()),
+            and(eq(subscriptionChallenges.runnerId, runner.id), eq(subscriptionChallenges.userId, context.actorId)),
+          ),
         ),
-      ),
-    );
-  await context.db
-    .insert(subscriptionChallenges)
-    .values({ id: newId("chal"), workspaceId, runnerId: runner.id, userId: context.actorId, codeHash: sha256(challenge), expiresAt });
-  counts.counter("dispand.runner.enrollment_challenges").add(1);
-  emitLog("runners", "info", "personal subscription enrollment started", { "dispand.runner.id": runner.id });
-  return { challenge, expiresAt };
-});
+      );
+    await context.db
+      .insert(subscriptionChallenges)
+      .values({ id: newId("chal"), workspaceId, runnerId: runner.id, userId: context.actorId, codeHash: sha256(challenge), expiresAt });
+    counts.counter("dispand.runner.enrollment_challenges").add(1);
+    emitLog("runners", "info", "personal subscription enrollment started", { "dispand.runner.id": runner.id });
+    return { challenge, expiresAt };
+  });
 
 /**
  * The workspace's live enrollments: which runner and harness, and whether it is the caller's. Never the
@@ -211,18 +210,21 @@ const subscriptions = memberProcedure.handler(async ({ context }) => {
 });
 
 /** Ends the caller's own enrollment. Someone else's is NOT_FOUND, a manager's call included. */
-const endSubscription = person.input(z.object({ enrollmentId: z.string() })).handler(async ({ input, context }) => {
-  const own = and(
-    eq(subscriptionEnrollments.id, input.enrollmentId),
-    eq(subscriptionEnrollments.workspaceId, context.access.workspaceId),
-    eq(subscriptionEnrollments.userId, context.actorId),
-  );
-  const ended = await context.db.transaction(async (tx) => {
-    const [row] = await tx.select({ id: subscriptionEnrollments.id }).from(subscriptionEnrollments).where(own);
-    if (row) await endEnrollments(tx, own, "revoked");
-    return row !== undefined;
+const endSubscription = memberProcedure
+  .use(notJob)
+  .input(z.object({ enrollmentId: z.string() }))
+  .handler(async ({ input, context }) => {
+    const own = and(
+      eq(subscriptionEnrollments.id, input.enrollmentId),
+      eq(subscriptionEnrollments.workspaceId, context.access.workspaceId),
+      eq(subscriptionEnrollments.userId, context.actorId),
+    );
+    const ended = await context.db.transaction(async (tx) => {
+      const [row] = await tx.select({ id: subscriptionEnrollments.id }).from(subscriptionEnrollments).where(own);
+      if (row) await endEnrollments(tx, own, "revoked");
+      return row !== undefined;
+    });
+    if (!ended) throw new ORPCError("NOT_FOUND", message("runners.subscriptionNotFound"));
   });
-  if (!ended) throw new ORPCError("NOT_FOUND", message("runners.subscriptionNotFound"));
-});
 
 export const subscriptionProcedures = { startEnrollment, subscriptions, endSubscription };

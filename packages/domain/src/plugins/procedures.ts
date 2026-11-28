@@ -1,4 +1,4 @@
-import { managerProcedure, memberProcedure } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure, notJob } from "../rpc/context.ts";
 import { createHash } from "node:crypto";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -489,37 +489,39 @@ const resetOverride = managerProcedure
 const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger", "skill_file"]), id: z.string().max(64) });
 
 /** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
-export const conflicts = memberProcedure.input(ElementRef).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  const rows = await context.db
-    .select()
-    .from(pluginConflicts)
-    .where(
-      and(
-        inArray(
-          pluginConflicts.pluginId,
-          context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+export const conflicts = memberProcedure
+  .use(notJob)
+  .input(ElementRef)
+  .handler(async ({ input, context }) => {
+    const rows = await context.db
+      .select()
+      .from(pluginConflicts)
+      .where(
+        and(
+          inArray(
+            pluginConflicts.pluginId,
+            context.db.select({ id: pluginsTable.id }).from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)),
+          ),
+          eq(pluginConflicts.kind, input.kind),
+          eq(pluginConflicts.elementId, input.id),
         ),
-        eq(pluginConflicts.kind, input.kind),
-        eq(pluginConflicts.elementId, input.id),
-      ),
-    )
-    .orderBy(asc(pluginConflicts.field));
-  // The values as they are now, which the owner decides on: a choice carries their token. Stem's
-  // merged value is answered in the Inbox, where the page links (`approvalId`, once its Job ended).
-  return Promise.all(
-    rows.map(async (r) => ({ ...(await conflictView(context.db, r)), approvalId: r.status === "approval" ? await approvalOf(context.db, r.runId) : null })),
-  );
-});
+      )
+      .orderBy(asc(pluginConflicts.field));
+    // The values as they are now, which the owner decides on: a choice carries their token. Stem's
+    // merged value is answered in the Inbox, where the page links (`approvalId`, once its Job ended).
+    return Promise.all(
+      rows.map(async (r) => ({ ...(await conflictView(context.db, r)), approvalId: r.status === "approval" ? await approvalOf(context.db, r.runId) : null })),
+    );
+  });
 
 /**
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
 const resolveConflict = managerProcedure
+  .use(notJob)
   .input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) }))
   .handler(async ({ input, context }) => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
     // Decided on the values the page showed: one that changed since (another update, an edit) is shown again.
     const [row] = await context.db
       .select()
