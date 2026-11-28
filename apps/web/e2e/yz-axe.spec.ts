@@ -60,7 +60,7 @@ function seed(page: Page) {
 
 const ROUTES = [
   "/",
-  "/assistant",
+  "/assistant?run=new",
   "/inbox",
   "/audit",
   "/help",
@@ -79,7 +79,7 @@ const ROUTES = [
   "/settings/plugins/installed",
   "/settings/system",
 ];
-const ALSO_IN_DARK = ["/", "/assistant", "/audit", "/settings/agents", "/settings/data"];
+const ALSO_IN_DARK = ["/", "/assistant?run=new", "/audit", "/settings/agents", "/settings/data"];
 
 for (const scheme of ["light", "dark"] as const) {
   test.describe(scheme, () => {
@@ -91,8 +91,10 @@ for (const scheme of ["light", "dark"] as const) {
     for (const route of scheme === "light" ? ROUTES : ALSO_IN_DARK) {
       test(`${route} has no accessibility violation`, async ({ page }) => {
         const { name } = await seed(page);
-        // Home shows the chat widget.
-        await accessible(page, route, route === "/" ? { ready: page.getByRole("region", { name }) } : {});
+        // Home shows the chat widget; a new conversation of Stem (not the latest saved one, which other specs may have left) its welcome.
+        const ready =
+          route === "/" ? page.getByRole("region", { name }) : route.endsWith("run=new") ? page.getByText(/Describe your business or use case/) : undefined;
+        await accessible(page, route, ready ? { ready } : {});
       });
     }
 
