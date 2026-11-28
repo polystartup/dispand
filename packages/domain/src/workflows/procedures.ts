@@ -492,14 +492,14 @@ const stream = signedInProcedure.input(runInput).handler(async function* ({ inpu
   const admit = async () => {
     if (place) {
       const at = place;
-      const [run] = await inScope({ userId: context.ownerId, ...at }, () => readerOfRun(context, input.runId, at));
-      if (!run?.admitted) throw runNotFound();
-      return { ...at, run };
+      const [view] = await inScope({ userId: context.ownerId, ...at }, () => readerOfRun(context, input.runId, at));
+      if (!view?.admitted) throw runNotFound();
+      return { ...at, view };
     }
     const placed = await placeOfRun(context.db, input.runId);
     if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw runNotFound();
     place = placed;
-    return { ...placed, run: undefined };
+    return { ...placed, view: undefined };
   };
   const scoped = <T>(read: (admitted: Awaited<ReturnType<typeof admit>>) => Promise<T>) => inStreamScope(context, admit, read);
   // Subscribed before the snapshot is read, so no change falls between them. A client that falls
@@ -538,9 +538,9 @@ const stream = signedInProcedure.input(runInput).handler(async function* ({ inpu
           continue;
         }
         // A row event comes after the snapshot, so `admit` has checked the run (fails closed otherwise).
-        const out = await scoped(async ({ run }) => {
-          if (!run?.readable) throw runNotFound();
-          if (change.type === "queued" && run.ownerId !== context.ownerId) return null;
+        const out = await scoped(async ({ view }) => {
+          if (!view?.readable) throw runNotFound();
+          if (change.type === "queued" && view.ownerId !== context.ownerId) return null;
           return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
         });
         if (out) yield out;
