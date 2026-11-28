@@ -20,7 +20,7 @@ import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, MAX_AGENT_TABLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
-import { managerProcedure, memberProcedure } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure, notJob } from "../rpc/context.ts";
 import { recordAudit } from "../audit/record.ts";
 import { MAX_SESSION_NATIVE_PLUGINS } from "../engine/tooling.ts";
 import { enabledActions, defaultUnasked } from "../tools/catalog.ts";
@@ -601,6 +601,7 @@ const setToolPermission = memberProcedure
  * Job's, even an approved one's; each plugin must be one of the workspace's, read from a marketplace.
  */
 const setNativePlugins = managerProcedure
+  .use(notJob)
   .input(
     z.object({
       agentId: z.string().max(64),
@@ -611,7 +612,6 @@ const setNativePlugins = managerProcedure
     }),
   )
   .handler(async ({ input, context }) => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
     const { workspaceId } = context.access;
     await context.db.transaction(async (tx) => {
       const [agent] = await tx
@@ -651,15 +651,17 @@ const nativePlugins = memberProcedure.input(z.object({ agentId: z.string().max(6
 });
 
 /** Native CLI permissions are managed by the owner, outside the agent's general edit form. */
-const cliRules = memberProcedure.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  return (await find(context.db, context.access.workspaceId, context.actorId, input.id)).cliRules;
-});
+const cliRules = memberProcedure
+  .use(notJob)
+  .input(z.object({ id: z.string().max(64) }))
+  .handler(async ({ input, context }) => {
+    return (await find(context.db, context.access.workspaceId, context.actorId, input.id)).cliRules;
+  });
 
 const removeCliRule = memberProcedure
+  .use(notJob)
   .input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) }))
   .handler(async ({ input, context }) => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
     await context.db.transaction(async (tx) => {
       const [agent] = await tx
         .select({ cliRules: agentsTable.cliRules })

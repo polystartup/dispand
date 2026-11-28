@@ -374,6 +374,16 @@ export const orgOwner = signedIn.concat(async ({ context, next }) => {
   );
 });
 
+/**
+ * Refuses a Job: what follows is a person's own act, from their own session, never an agent's.
+ * It comes after the gate that admits the caller, so whoever may not call at all gets that gate's
+ * answer first. The one way a procedure refuses a Job as such (`rpc/scopes.test.ts`).
+ */
+export const notJob = os.$context<InitialContext>().middleware(({ context, next }) => {
+  if (context.job) throw new ORPCError("FORBIDDEN", message("auth.personOnly"));
+  return next();
+});
+
 // Each procedure starts from the base named for whom it admits, so its gate reads where it is defined.
 /** Anyone signed in, a person or a Job (`signedIn`): the procedure checks its own resource. */
 export const signedInProcedure = base.use(signedIn);

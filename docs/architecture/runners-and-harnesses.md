@@ -14,7 +14,10 @@
   `rpc/context.ts`: `signedIn` (a person or a Job), `member` or `manager` (a role in the workspace,
   read at each call) or `orgOwner`, and starts from the base named after it (`signedInProcedure`,
   `memberProcedure`, `managerProcedure`, `orgOwnerProcedure`), unless public on purpose (`auth.status`, `auth.setup`, and an
-  invitation's sign-up and its preview, checked by its token); a test walks the router for it. A server whose people are created by another flow
+  invitation's sign-up and its preview, checked by its token); a test walks the router for it. A person's own act (their workspaces,
+  invitations, profile and subscriptions, what they send a chat, the say over plugins and native CLI
+  rules) also passes `notJob`, which refuses a Job with one answer (`auth.personOnly`); a test walks
+  the router and the sources so that no procedure refuses a Job inline. A server whose people are created by another flow
   builds the app with `{ setup: false }`: `auth.setup` is then refused and `auth.status` says
   setup isn't needed, so the web app never shows the setup screen.
 - **Runners:** `runners.create` (owner) makes a runner and a single-use pairing code (8

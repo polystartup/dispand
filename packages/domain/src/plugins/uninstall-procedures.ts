@@ -16,7 +16,7 @@ import {
 import { pluginNativeKey } from "../skills/native.ts";
 import { message } from "../messages/index.ts";
 import { lockConsults } from "../engine/consults.ts";
-import { type InitialContext, managerProcedure, memberProcedure } from "../rpc/context.ts";
+import { type InitialContext, managerProcedure, memberProcedure, notJob } from "../rpc/context.ts";
 import { type Tx } from "../skills/procedures.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
 import { forgetConflicts } from "./resolve.ts";
@@ -48,12 +48,14 @@ const removalReview = (elements: Element[]) => canonicalHash(elements);
  * it, it holds rows, memory or a running Job, something that stays uses it) and the other
  * elements it needs if kept. `reviewed` binds the removal to this list.
  */
-export const uninstallPreview = memberProcedure.input(Id).handler(async ({ input, context }) => {
-  if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-  const row = await findPlugin(context.db, context.access.workspaceId, input.id);
-  const elements = await inUse(context.db, context.access.workspaceId, row.id);
-  return { elements, reviewed: removalReview(elements), nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null };
-});
+export const uninstallPreview = memberProcedure
+  .use(notJob)
+  .input(Id)
+  .handler(async ({ input, context }) => {
+    const row = await findPlugin(context.db, context.access.workspaceId, input.id);
+    const elements = await inUse(context.db, context.access.workspaceId, row.id);
+    return { elements, reviewed: removalReview(elements), nativeName: `dispand-${row.id}`, sourceKey: pluginNativeKey(row) ?? null };
+  });
 
 /** A name among the owner's own: `name`, else `<name> (<plugin>)`, then with 2, 3… after it, cut so the whole fits a name. */
 function freeName(own: Set<string>, name: string, plugin: string): string {
@@ -174,22 +176,24 @@ export const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"]))
  * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
  * checked as a whole first (`checkChoices`).
  */
-export const uninstall = managerProcedure.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) =>
-  acted("uninstall", input.id, async () => {
-    if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
-    const out = await context.db.transaction(async (tx) => {
-      const row = await findPlugin(tx, context.access.workspaceId, input.id, true);
-      await lockElements(tx, row.workspaceId, row.id);
-      const elements = await inUse(tx, context.access.workspaceId, row.id);
-      if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
-      checkChoices(elements, input.choices);
-      const out = await removeElements(tx, context.access.workspaceId, context.engine, row, elements, input.choices);
-      await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
-      return out;
-    });
-    context.engine.settled(out);
-    await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
-    // An update's Approval whose items all left with the plugin left the Inbox.
-    context.engine.questionChanged(context.access.workspaceId);
-  }),
-);
+export const uninstall = managerProcedure
+  .use(notJob)
+  .input(Id.extend({ reviewed: z.string().length(64), choices: Choices }))
+  .handler(({ input, context }) =>
+    acted("uninstall", input.id, async () => {
+      const out = await context.db.transaction(async (tx) => {
+        const row = await findPlugin(tx, context.access.workspaceId, input.id, true);
+        await lockElements(tx, row.workspaceId, row.id);
+        const elements = await inUse(tx, context.access.workspaceId, row.id);
+        if (removalReview(elements) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.uninstall.changed", { plugin: row.name }));
+        checkChoices(elements, input.choices);
+        const out = await removeElements(tx, context.access.workspaceId, context.engine, row, elements, input.choices);
+        await tx.delete(pluginsTable).where(eq(pluginsTable.id, row.id));
+        return out;
+      });
+      context.engine.settled(out);
+      await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
+      // An update's Approval whose items all left with the plugin left the Inbox.
+      context.engine.questionChanged(context.access.workspaceId);
+    }),
+  );

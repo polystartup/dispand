@@ -9,9 +9,9 @@ import { account, organizationMembers, organizations, user, workspaceInvitations
 import { newId } from "../ids.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
-import { asManager, managedWorkspaces, person, requireManager, Scope } from "./people.ts";
+import { asManager, managedWorkspaces, requireManager, Scope } from "./people.ts";
 
-import { base, type InitialContext } from "../rpc/context.ts";
+import { base, type InitialContext, notJob, signedInProcedure } from "../rpc/context.ts";
 import { authorize } from "./authorize.ts";
 import { refuseOrganization } from "./gate.ts";
 
@@ -31,49 +31,58 @@ function auditChange(
   return recordAudit(tx, { workspaceId, ownerId: userId, actor: { type: "user", userId }, action, resource: { type: "workspace", id: workspaceId } });
 }
 
-export const invite = person.input(Scope.extend({ email: Email, role })).handler(({ context, input }) =>
-  asManager(context.db, context.ownerId, input, () =>
-    context.db.transaction(async (tx) => {
-      await requireManager(tx, context.ownerId, input);
-      const id = newId("inv");
-      const token = randomBytes(32).toString("base64url");
-      const fields = { id, inviterId: context.ownerId, role: input.role, tokenHash: hash(token), expiresAt: sql`clock_timestamp() + interval '7 days'` };
-      const [row] = await tx
-        .insert(workspaceInvitations)
-        .values({ ...fields, email: input.email, workspaceId: input.workspaceId })
-        .onConflictDoUpdate({ target: [workspaceInvitations.workspaceId, workspaceInvitations.email], set: fields })
-        .returning({ expiresAt: workspaceInvitations.expiresAt });
-      await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invited");
-      return { id, token, expiresAt: row!.expiresAt };
-    }),
-  ),
-);
+export const invite = signedInProcedure
+  .use(notJob)
+  .input(Scope.extend({ email: Email, role }))
+  .handler(({ context, input }) =>
+    asManager(context.db, context.ownerId, input, () =>
+      context.db.transaction(async (tx) => {
+        await requireManager(tx, context.ownerId, input);
+        const id = newId("inv");
+        const token = randomBytes(32).toString("base64url");
+        const fields = { id, inviterId: context.ownerId, role: input.role, tokenHash: hash(token), expiresAt: sql`clock_timestamp() + interval '7 days'` };
+        const [row] = await tx
+          .insert(workspaceInvitations)
+          .values({ ...fields, email: input.email, workspaceId: input.workspaceId })
+          .onConflictDoUpdate({ target: [workspaceInvitations.workspaceId, workspaceInvitations.email], set: fields })
+          .returning({ expiresAt: workspaceInvitations.expiresAt });
+        await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invited");
+        return { id, token, expiresAt: row!.expiresAt };
+      }),
+    ),
+  );
 
-export const invitations = person.input(Scope).handler(({ context, input }) =>
-  asManager(context.db, context.ownerId, input, () =>
-    context.db
-      .select({ id: workspaceInvitations.id, email: workspaceInvitations.email, role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt })
-      .from(workspaceInvitations)
-      .where(and(eq(workspaceInvitations.workspaceId, input.workspaceId), live()))
-      .orderBy(asc(workspaceInvitations.email))
-      .then((rows) => rows),
-  ),
-);
+export const invitations = signedInProcedure
+  .use(notJob)
+  .input(Scope)
+  .handler(({ context, input }) =>
+    asManager(context.db, context.ownerId, input, () =>
+      context.db
+        .select({ id: workspaceInvitations.id, email: workspaceInvitations.email, role: workspaceInvitations.role, expiresAt: workspaceInvitations.expiresAt })
+        .from(workspaceInvitations)
+        .where(and(eq(workspaceInvitations.workspaceId, input.workspaceId), live()))
+        .orderBy(asc(workspaceInvitations.email))
+        .then((rows) => rows),
+    ),
+  );
 
-export const revokeInvitation = person.input(Scope.extend({ id: z.string().min(1) })).handler(({ context, input }) =>
-  asManager(context.db, context.ownerId, input, () =>
-    context.db.transaction(async (tx) => {
-      await requireManager(tx, context.ownerId, input);
-      const [row] = await tx
-        .delete(workspaceInvitations)
-        .where(and(eq(workspaceInvitations.id, input.id), eq(workspaceInvitations.workspaceId, input.workspaceId)))
-        .returning({ id: workspaceInvitations.id });
-      if (!row) throw missing();
-      await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invitationRevoked");
-      return { revoked: true };
-    }),
-  ),
-);
+export const revokeInvitation = signedInProcedure
+  .use(notJob)
+  .input(Scope.extend({ id: z.string().min(1) }))
+  .handler(({ context, input }) =>
+    asManager(context.db, context.ownerId, input, () =>
+      context.db.transaction(async (tx) => {
+        await requireManager(tx, context.ownerId, input);
+        const [row] = await tx
+          .delete(workspaceInvitations)
+          .where(and(eq(workspaceInvitations.id, input.id), eq(workspaceInvitations.workspaceId, input.workspaceId)))
+          .returning({ id: workspaceInvitations.id });
+        if (!row) throw missing();
+        await auditChange(tx, context.ownerId, input.workspaceId, "workspace.invitationRevoked");
+        return { revoked: true };
+      }),
+    ),
+  );
 
 /** The workspace a token's invitation is for, read under SYSTEM: the token is all there is. What follows runs in it. */
 async function placeOf(db: Db, token: string) {
@@ -150,7 +159,8 @@ async function summary(db: Db, row: Invitation) {
   };
 }
 
-export const invitation = person
+export const invitation = signedInProcedure
+  .use(notJob)
   .input(Token)
   .handler(async ({ context, input }) =>
     inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, async () =>
@@ -159,18 +169,20 @@ export const invitation = person
   );
 
 /** A new user can review the owner's trusted handoff before choosing a password. */
-export const registrationPreview = base.input(Token.extend({ email: Email })).handler(async ({ context, input }) => {
-  if (context.job) throw missing();
-  return inScope(await placeOf(context.db, input.token), async () => {
-    const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
-    await vouched(context.db, context, row);
-    refusedFor(context, row);
-    // No account yet: identities live on authDb, and db may see only the workspace's people.
-    const [taken] = await context.authDb.select({ id: user.id }).from(user).where(eq(user.email, input.email));
-    if (taken) throw missing();
-    return summary(context.db, row);
+export const registrationPreview = base
+  .use(notJob)
+  .input(Token.extend({ email: Email }))
+  .handler(async ({ context, input }) => {
+    return inScope(await placeOf(context.db, input.token), async () => {
+      const row = await findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email));
+      await vouched(context.db, context, row);
+      refusedFor(context, row);
+      // No account yet: identities live on authDb, and db may see only the workspace's people.
+      const [taken] = await context.authDb.select({ id: user.id }).from(user).where(eq(user.email, input.email));
+      if (taken) throw missing();
+      return summary(context.db, row);
+    });
   });
-});
 
 type Invitation = Awaited<ReturnType<typeof findInvitation>>;
 
@@ -186,15 +198,18 @@ async function grant(tx: Tx, row: Invitation, userId: string) {
   return { organizationId: row.organizationId, workspaceId: row.workspaceId };
 }
 
-export const acceptInvitation = person.input(Token).handler(async ({ context, input }) =>
-  inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, () =>
-    context.db.transaction(async (tx) => {
-      const row = await addressedTo(tx, context.ownerId, input.token);
-      await requireManager(tx, row.inviterId, row);
-      return grant(tx, refusedFor(context, row), context.ownerId);
-    }),
-  ),
-);
+export const acceptInvitation = signedInProcedure
+  .use(notJob)
+  .input(Token)
+  .handler(async ({ context, input }) =>
+    inScope({ userId: context.ownerId, ...(await placeOf(context.db, input.token)) }, () =>
+      context.db.transaction(async (tx) => {
+        const row = await addressedTo(tx, context.ownerId, input.token);
+        await requireManager(tx, row.inviterId, row);
+        return grant(tx, refusedFor(context, row), context.ownerId);
+      }),
+    ),
+  );
 
 /**
  * A new account is enrolled only on a server that creates its own people (`setup` on), and only
@@ -207,6 +222,7 @@ async function vouched(db: Db | Tx, context: Pick<InitialContext, "setup">, row:
 
 /** A new account through an invitation's direct handoff, vouched for by its inviter. */
 export const registerInvitation = base
+  .use(notJob)
   .input(
     Token.extend({
       email: Email,
@@ -220,7 +236,6 @@ export const registerInvitation = base
     }),
   )
   .handler(async ({ context, input }) => {
-    if (context.job) throw missing();
     const placed = await placeOf(context.db, input.token);
     const row = await inScope(placed, () => findInvitation(context.db, input.token, eq(workspaceInvitations.email, input.email)));
     // Before any identity or password hash: on a separate authDb the identity commits on its own.

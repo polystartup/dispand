@@ -625,7 +625,8 @@
     "signIn": "Sign in to continue.",
     "setupRefused": "Setup is not allowed.",
     "setupThrottled": "Too many wrong setup codes: wait a few minutes and try again.",
-    "ownerOnly": "Only the owner can do this, not an agent."
+    "ownerOnly": "Only the owner can do this, not an agent.",
+    "personOnly": "Only a person can do this, not an agent."
   },
   "audit": {
     "badCursor": "This cursor isn't valid: start the list again.",

@@ -1145,13 +1145,13 @@ test("destructive plugin checklists and previews require an owner session", asyn
     const job = { ...ctx, job: await jobIdentity(ctx, agentIds[0]) };
     await expect(call(router.plugins.uninstallPreview, { id: pluginId }, { context: job })).rejects.toMatchObject({
       code: "FORBIDDEN",
-      data: { key: "plugins.ownerSession" },
+      data: { key: "auth.personOnly" },
     });
     const preview = await call(router.plugins.uninstallPreview, { id: pluginId }, { context: ctx });
     const choices = Object.fromEntries(preview.elements.map((element) => [element.key, "delete" as const]));
     await expect(call(router.plugins.uninstall, { id: pluginId, reviewed: preview.reviewed, choices }, { context: job })).rejects.toMatchObject({
       code: "FORBIDDEN",
-      data: { key: "plugins.ownerSession" },
+      data: { key: "auth.personOnly" },
     });
     expect(await call(router.agents.get, { id: agentIds[0]! }, { context: ctx })).toMatchObject({ plugin: { id: pluginId } });
   } finally {
