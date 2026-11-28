@@ -1379,6 +1379,21 @@ test("a sign-in the runner reports as needed shows to the subscriber and to mana
   await vi.waitFor(async () => expect((await listed(mia))[0]).toMatchObject({ id: enrollmentId, signInNeeded: false }));
 });
 
+test("a runner's unasked report of a subscription that stopped serving shows at once, and changes nothing else", async () => {
+  const { context, runner, mia, runnerId, confirm } = await subscriberRunner();
+  const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context: mia });
+  const { enrollmentId } = (await confirm(challenge)) as { enrollmentId: string };
+  const stopped = [{ harness: "codex" as const, identity: identityA, signInNeeded: true }];
+  // No subscriptions in it: ignored, as every unasked reply is.
+  runner.send({ type: "clis.replied", requestId: "unasked-1", clis: {} });
+  runner.send({ type: "clis.replied", requestId: "unasked-2", clis: { codex: { version: "9.9.9", signedIn: false }, subscriptions: stopped } });
+  const listed = async () => call(router.runners.subscriptions, undefined, { context: mia });
+  await vi.waitFor(async () => expect(await listed()).toEqual([expect.objectContaining({ id: enrollmentId, signInNeeded: true })]));
+  // The stored inventory is the hello's: an unasked report updates the subscriptions only.
+  const [row] = await context.db.select({ clis: runners.clis }).from(runners).where(eq(runners.id, runnerId));
+  expect(row?.clis).toEqual({ codex: { version: "0.50.0", signedIn: true } });
+});
+
 test("an owner who hands the organization over loses their subscriptions in workspaces they aren't assigned to", async () => {
   const { context, runnerId, mia, confirm } = await subscriberRunner();
   const { challenge } = await call(router.runners.startEnrollment, { runnerId }, { context });

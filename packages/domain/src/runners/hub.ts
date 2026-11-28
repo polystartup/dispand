@@ -580,10 +580,17 @@ export class RunnerHub {
     conn.catchUp = { lastSeq: msg.lastSeq, liveSessions: msg.liveSessions };
   }
 
-  /** A reply resolves only a request of its kind sent to the runner that answers it. */
+  /**
+   * A reply resolves only a request of its kind sent to the runner that answers it. Unasked, a
+   * `clis.replied` that carries subscriptions (the runner sends one when a subscription stops
+   * serving) updates only them, as its `hello` would: never the inventory, and it resolves nothing.
+   */
   private async reply(conn: Connection, msg: Reply) {
     const w = this.waiting.get(msg.requestId);
-    if (w?.runnerId !== conn.runnerId || w.type !== msg.type) return;
+    if (w?.runnerId !== conn.runnerId || w.type !== msg.type) {
+      if (!w && msg.type === "clis.replied" && msg.clis?.subscriptions) await reportedSubscriptions(this.db, conn.runnerId, msg.clis.subscriptions);
+      return;
+    }
     // Serialize inventory writes with hello on this runner's drain loop, including across reconnects.
     if (msg.type === "clis.replied" && msg.clis) {
       await this.db

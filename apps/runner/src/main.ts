@@ -357,10 +357,7 @@ async function run(args: string[]) {
     const key = `${harness}:${enrollment.identity}`;
     let source = credentials.get(key);
     if (!source) {
-      const onSignInNeeded = () =>
-        console.error(
-          `dispand-runner: the personal ${harness} subscription can't serve its enrollment: sign in again with \`dispand-runner sign-in ${harness}\``,
-        );
+      const onSignInNeeded = () => void subscriptions.signInNeeded(harness, (m) => conn.reply(m));
       source =
         harness === "codex"
           ? new CodexSubscription({ subscriptions, configDir: dir, codexPath: () => detected.codexPath, env, identity: enrollment.identity, onSignInNeeded })
