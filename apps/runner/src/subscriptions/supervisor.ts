@@ -242,17 +242,17 @@ export class Subscriptions {
   async status(fresh = false): Promise<SubscriptionStatus[]> {
     const out: SubscriptionStatus[] = [];
     const codex = this.codex;
-    const before = await this.stamp();
-    if (codex && before !== "none") {
-      const read = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).then(
-        (identity) => ({ identity }),
-        () => undefined,
-      );
-      const stamp = await this.stamp();
+    if (codex && (await this.stamp()) !== "none") {
+      // The login file's stamp around the read, in its turn on the store: a renewal queued before it changes neither.
+      const read = await this.codexStore(async () => {
+        const before = await this.stamp();
+        const identity = await codexIdentity(codex.path, codex.env, codex.timeoutMs);
+        return { identity, before, after: await this.stamp() };
+      }).catch(() => undefined);
       // Signed out is what a read says; a failed one keeps the last word on this login file. A
       // read the login changed under is reported, never kept.
-      if (read) this.lastCodex = read.identity && stamp === before ? { stamp, identity: read.identity } : undefined;
-      const kept = !fresh && this.lastCodex?.stamp === stamp ? this.lastCodex.identity : undefined;
+      if (read) this.lastCodex = read.identity && read.before === read.after ? { stamp: read.after, identity: read.identity } : undefined;
+      const kept = !fresh && this.lastCodex?.stamp === (await this.stamp()) ? this.lastCodex.identity : undefined;
       const identity = read ? read.identity : kept;
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
