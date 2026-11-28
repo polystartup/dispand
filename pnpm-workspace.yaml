@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - bench/*
 minimumReleaseAgeExclude:
   - '@electric-sql/pglite@0.5.15'
   - '@tailwindcss/node@4.3.4'
