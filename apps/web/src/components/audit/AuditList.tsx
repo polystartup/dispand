@@ -52,7 +52,7 @@ function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null
       ) : (
         <span className="font-mono">{traceId}</span>
       )}
-      <Button variant="ghost" size="icon-xs" aria-label={t("trace.copy")} onClick={() => void navigator.clipboard.writeText(traceId).catch(() => undefined)}>
+      <Button variant="ghost" size="icon" aria-label={t("trace.copy")} onClick={() => void navigator.clipboard.writeText(traceId).catch(() => undefined)}>
         <Copy aria-hidden />
       </Button>
     </span>
@@ -98,7 +98,7 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
   }
   return (
     <>
-      <ul className="divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">
+      <ul className="focus-inset divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">
         {rows.map((row) => (
           <li key={row.id} className="px-5 py-3 text-[14px]">
             <div className="flex flex-wrap items-baseline gap-x-2">

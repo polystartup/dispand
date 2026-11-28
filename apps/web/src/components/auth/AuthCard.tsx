@@ -18,8 +18,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
   );
 }
 
-const input =
-  "w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-[15px] outline-none transition placeholder:text-faint focus:border-accent focus:ring-4 focus:ring-accent/15";
+const input = "min-h-11 w-full rounded-xl border border-line bg-bg px-3.5 py-2.5 text-[15px] transition placeholder:text-faint focus:border-accent";
 
 export function Field({ label, ...props }: { label: string } & React.ComponentProps<"input">) {
   return (
@@ -44,7 +43,7 @@ export function SubmitButton({ busy, children }: { busy: boolean; children: Reac
     <button
       type="submit"
       disabled={busy || !hydrated}
-      className="mt-2 w-full rounded-xl bg-accent py-2.5 text-[15px] font-medium text-accent-foreground transition hover:brightness-110 active:scale-[0.99] disabled:opacity-60"
+      className="mt-2 min-h-11 w-full rounded-xl bg-accent py-2.5 text-[15px] font-medium text-accent-foreground transition hover:brightness-110 active:scale-[0.99] disabled:opacity-60"
     >
       {children}
     </button>

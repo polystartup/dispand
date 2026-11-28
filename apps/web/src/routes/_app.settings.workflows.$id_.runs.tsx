@@ -14,7 +14,7 @@ function WorkflowRuns() {
   const workflow = useQuery(orpc.workflows.get.queryOptions({ input: { id }, staleTime: Infinity }));
   return (
     <>
-      <Link to="/settings/workflows" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
+      <Link to="/settings/workflows" className="mb-1 inline-flex min-h-11 items-center gap-1 text-[13px] text-muted transition hover:text-fg">
         <ChevronLeft size={15} aria-hidden /> {t("editor.back")}
       </Link>
       <h1 className="mb-6 truncate text-[28px] font-semibold leading-tight tracking-tight">{workflow.data?.name ?? " "}</h1>

@@ -167,28 +167,32 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       {
         id: "select",
         header: ({ table }) => (
-          <input
-            type="checkbox"
-            aria-label={t("grid.selectAll")}
-            checked={table.getIsAllRowsSelected()}
-            onChange={table.getToggleAllRowsSelectedHandler()}
-            className="size-4 accent-[var(--accent)]"
-          />
+          <label className="grid size-11 place-items-center">
+            <input
+              type="checkbox"
+              aria-label={t("grid.selectAll")}
+              checked={table.getIsAllRowsSelected()}
+              onChange={table.getToggleAllRowsSelectedHandler()}
+              className="size-4 accent-[var(--accent)]"
+            />
+          </label>
         ),
         cell: ({ row }) => (
           <span className="flex items-center gap-1">
-            <input
-              type="checkbox"
-              aria-label={t("grid.select")}
-              checked={row.getIsSelected()}
-              onChange={row.getToggleSelectedHandler()}
-              className="size-4 accent-[var(--accent)]"
-            />
+            <label className="grid size-11 place-items-center">
+              <input
+                type="checkbox"
+                aria-label={t("grid.select")}
+                checked={row.getIsSelected()}
+                onChange={row.getToggleSelectedHandler()}
+                className="size-4 accent-[var(--accent)]"
+              />
+            </label>
             <button
               type="button"
               aria-label={t("grid.open")}
               onClick={() => onOpenRow(row.original.id)}
-              className="grid size-6 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
+              className="grid size-11 place-items-center rounded-md text-muted hover:bg-hover hover:text-fg"
             >
               <Maximize2 size={13} aria-hidden />
             </button>
@@ -282,7 +286,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           </Button>
         )}
       </div>
-      <div className="overflow-auto rounded-2xl bg-surface shadow-card has-[table:focus-visible]:ring-2 has-[table:focus-visible]:ring-accent/40">
+      <div className="overflow-auto rounded-2xl bg-surface shadow-card has-[table:focus-visible]:outline-2 has-[table:focus-visible]:outline-offset-3 has-[table:focus-visible]:outline-accent">
         <table
           ref={gridRef}
           role="grid"
@@ -290,7 +294,8 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
           aria-rowcount={total + 1}
           tabIndex={0}
           onKeyDown={onKeyDown}
-          className="w-max min-w-full border-separate border-spacing-0 text-[14px] outline-none"
+          // The scrolling box around it shows the focus: it would clip the table's own outline.
+          className="w-max min-w-full border-separate border-spacing-0 text-[14px] focus-visible:outline-hidden!"
         >
           <thead>
             {table.getHeaderGroups().map((group) => (
@@ -302,9 +307,9 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       key={header.id}
                       scope="col"
                       className={cn(
-                        "h-10 border-b border-line bg-surface px-2 text-left font-medium text-muted",
-                        i === 0 && "sticky left-0 z-10 w-[4.5rem]",
-                        i === 1 && "sticky left-[4.5rem] z-10 border-r",
+                        "h-11 border-b border-line bg-surface px-2 text-left font-medium text-muted",
+                        i === 0 && "sticky left-0 z-10 w-[6.5rem]",
+                        i === 1 && "sticky left-[6.5rem] z-10 border-r",
                       )}
                     >
                       {field ? (
@@ -323,7 +328,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                     </th>
                   );
                 })}
-                <th scope="col" className="h-10 w-12 border-b border-line bg-surface px-2">
+                <th scope="col" className="h-11 w-15 border-b border-line bg-surface px-2">
                   <NewFieldPopover tableId={tableId} onCreated={onSchemaChanged} />
                 </th>
               </tr>
@@ -335,7 +340,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                 {row.getAllCells().map((cell, i) => {
                   if (i === 0) {
                     return (
-                      <td key={cell.id} className="sticky left-0 z-[5] h-10 w-[4.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
+                      <td key={cell.id} className="sticky left-0 z-[5] h-11 w-[6.5rem] border-b border-line bg-surface px-2 group-hover:bg-hover">
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </td>
                     );
@@ -362,8 +367,8 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                       }}
                       onDoubleClick={() => startEdit({ row: r, col: c })}
                       className={cn(
-                        "relative h-10 max-w-60 border-b border-line bg-surface px-2 group-hover:bg-hover",
-                        c === 0 && "sticky left-[4.5rem] z-[5] border-r",
+                        "relative h-11 max-w-60 border-b border-line bg-surface px-2 group-hover:bg-hover",
+                        c === 0 && "sticky left-[6.5rem] z-[5] border-r",
                         isActive && "outline-2 -outline-offset-2 outline-accent",
                       )}
                     >
@@ -387,7 +392,7 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
                     </td>
                   );
                 })}
-                <td className="h-10 border-b border-line bg-surface group-hover:bg-hover" />
+                <td className="h-11 border-b border-line bg-surface group-hover:bg-hover" />
               </tr>
             ))}
           </tbody>

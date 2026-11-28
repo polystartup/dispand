@@ -182,7 +182,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
                     <button
                       type="button"
                       aria-label={t("editor.removeFile", { path: f.path })}
-                      className="rounded p-0.5 hover:bg-hover"
+                      className="-my-2 -mr-2 grid size-11 place-items-center rounded-lg hover:bg-hover"
                       onClick={() => setUploads(uploads.filter((u) => u.path !== f.path))}
                     >
                       <X className="size-3.5" />
@@ -194,7 +194,7 @@ function SkillForm({ pkg, onClose }: { pkg?: Details; onClose: () => void }) {
           </ul>
         )}
         <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex cursor-pointer items-center rounded-lg border border-line px-3 py-1.5 text-[13px] transition hover:bg-hover">
+          <label className="inline-flex min-h-11 cursor-pointer items-center rounded-lg border border-line px-3 py-1.5 text-[13px] transition hover:bg-soft">
             {uploads ? t("editor.addFiles") : t("editor.replaceFiles")}
             <input
               type="file"

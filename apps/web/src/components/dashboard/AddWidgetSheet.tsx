@@ -35,7 +35,7 @@ export function AddWidgetSheet({ pageId, onClose }: Props) {
             <button
               type="button"
               onClick={() => setData(null)}
-              className="inline-flex items-center gap-1 justify-self-start text-[13px] text-muted hover:text-fg"
+              className="inline-flex min-h-11 items-center gap-1 justify-self-start text-[13px] text-muted hover:text-fg"
             >
               <ChevronLeft size={14} aria-hidden /> {t("add.back")}
             </button>

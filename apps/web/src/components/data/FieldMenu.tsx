@@ -47,7 +47,7 @@ export function FieldMenu({ field, fields, tableId, onChanged }: Props) {
           <button
             type="button"
             aria-label={t("fieldMenu.label", { name: field.name })}
-            className="grid size-6 shrink-0 place-items-center rounded-md text-muted hover:bg-hover"
+            className="grid size-11 shrink-0 place-items-center rounded-md text-muted hover:bg-hover"
           >
             <ChevronDown size={14} aria-hidden />
           </button>

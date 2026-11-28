@@ -10,7 +10,7 @@ type Directory = Awaited<ReturnType<typeof api.organization.directory>>;
 type Member = Directory["people"][number];
 type Role = "manager" | "member";
 
-const selectClass = "h-9 rounded-md border border-input bg-surface px-3 text-sm";
+const selectClass = "min-h-11 rounded-md border border-input bg-surface px-3 text-sm";
 
 /**
  * Every person of the organization, for its owner, with the workspaces they have a role in: one

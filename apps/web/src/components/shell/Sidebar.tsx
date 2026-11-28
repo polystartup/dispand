@@ -71,7 +71,7 @@ export function Sidebar({ user, onNavigate }: { user: { name: string; email: str
       </div>
       <WorkspaceSwitcherSlot />
 
-      <nav aria-label={t("main")} className="min-h-0 flex-1 overflow-y-auto">
+      <nav aria-label={t("main")} className="-m-1.5 min-h-0 flex-1 overflow-y-auto p-1.5">
         <div className="flex flex-col gap-px">
           <NavLink to="/assistant" label={t("messages:agent.assistant.name")} Icon={MessageCircle} onNavigate={onNavigate} />
           <NavLink to="/" label={t("nav.home")} Icon={House} onNavigate={onNavigate} />

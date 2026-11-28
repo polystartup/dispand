@@ -125,7 +125,7 @@ body {
 
 :focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: 2px;
+  outline-offset: 3px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -135,6 +135,21 @@ body {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
   }
+}
+
+/* Every control is at least 44px tall. A checkbox or a radio is pressed through its label, and a
+   summary is a control of its own. */
+label:has(> input:is([type="checkbox"], [type="radio"])),
+summary {
+  min-height: 2.75rem;
+}
+summary {
+  align-content: center;
+}
+
+/* A box that clips its rows (a list card, a menu) would cut their outline: it is drawn inside. */
+.focus-inset :focus-visible {
+  outline-offset: -2px;
 }
 
 @keyframes pop {

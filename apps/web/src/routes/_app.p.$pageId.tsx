@@ -19,7 +19,7 @@ function Page() {
         <p role="alert" className="text-[17px] font-medium">
           {gone ? t("page.gone") : t("page.failed")}
         </p>
-        <Link to="/" className="mt-2 text-[14px] text-accent hover:underline">
+        <Link to="/" className="mt-2 inline-flex min-h-11 items-center text-[14px] text-accent hover:underline">
           {t("page.goHome")}
         </Link>
       </div>
@@ -65,7 +65,7 @@ function Loaded({ page }: { page: LoadedPage }) {
           if (e.key === "Enter") e.currentTarget.blur();
           if (e.key === "Escape") setTitle(null);
         }}
-        className="w-full rounded-lg bg-transparent text-[28px] font-semibold leading-tight tracking-tight outline-none ring-accent focus-visible:ring-2"
+        className="min-h-11 w-full rounded-lg bg-transparent text-[28px] font-semibold leading-tight tracking-tight"
       />
     );
   return (

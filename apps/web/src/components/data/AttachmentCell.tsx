@@ -20,7 +20,7 @@ function FileItem({ id, file, size }: { id: string; file?: AttachmentView; size:
     <a
       href={fileUrl(id)}
       onClick={(e) => e.stopPropagation()}
-      className="inline-flex max-w-40 items-center gap-1 rounded-md bg-hover px-1.5 py-0.5 text-[12px] text-fg"
+      className="inline-flex min-h-11 max-w-40 items-center gap-1 rounded-md bg-hover px-1.5 py-0.5 text-[12px] text-fg"
       title={file?.name}
     >
       <FileText size={12} aria-hidden className="shrink-0" />
@@ -126,7 +126,8 @@ export function AttachmentEditor({
                   setError(null);
                   edit.mutate({ remove: id });
                 }}
-                className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-surface text-muted shadow-card hover:text-fg"
+                // Small to look at, 44px to press.
+                className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-surface text-muted shadow-card after:absolute after:-inset-3 hover:text-fg"
               >
                 <X size={12} aria-hidden />
               </button>
@@ -150,7 +151,7 @@ export function AttachmentEditor({
           type="button"
           disabled={busy}
           onClick={() => input.current?.click()}
-          className="inline-flex items-center gap-1.5 font-medium text-accent disabled:opacity-50"
+          className="inline-flex min-h-11 items-center gap-1.5 font-medium text-accent disabled:opacity-50"
         >
           <Upload size={14} aria-hidden /> {busy ? t("files.uploading") : t("files.add")}
         </button>

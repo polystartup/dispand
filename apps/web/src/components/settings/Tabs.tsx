@@ -3,7 +3,7 @@ import { Tabs as TabsPrimitive } from "radix-ui";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-const tab = "-mb-px border-b-2 px-1 pb-2.5 text-[14px] transition";
+const tab = "-mb-px inline-flex min-h-11 items-end border-b-2 px-1 pb-2.5 text-[14px] transition";
 
 /** Route-based tabs at the top of a settings page: each tab is a link, the current one is marked. */
 export function Tabs({ tabs }: { tabs: readonly { to: string; label: string }[] }) {

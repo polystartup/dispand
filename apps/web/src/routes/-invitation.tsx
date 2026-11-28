@@ -6,7 +6,7 @@ import { SignInForm } from "../components/auth/SignInForm.tsx";
 import { api } from "../lib/api.ts";
 import { signIn, signOut } from "../lib/auth-call.ts";
 
-const secondary = "mt-4 text-sm font-medium text-accent hover:underline";
+const secondary = "mt-4 min-h-11 text-sm font-medium text-accent hover:underline";
 type Preview = Awaited<ReturnType<typeof api.workspace.invitation>>;
 
 function Details({ preview }: { preview: Preview }) {

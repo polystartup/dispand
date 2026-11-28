@@ -67,7 +67,7 @@ export function TableWidget({ widget, editing }: { widget: Extract<DataWidget, {
                         {field.type === "attachment" ? (
                           field.name
                         ) : (
-                          <button type="button" onClick={() => cycle(field.id)} className="inline-flex items-center gap-1 hover:text-fg">
+                          <button type="button" onClick={() => cycle(field.id)} className="inline-flex min-h-11 items-center gap-1 hover:text-fg">
                             {field.name}
                             {dir === "asc" && <ArrowUp size={13} aria-hidden />}
                             {dir === "desc" && <ArrowDown size={13} aria-hidden />}

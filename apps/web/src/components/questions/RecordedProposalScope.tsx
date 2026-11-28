@@ -18,6 +18,8 @@ export function RecordedProposalScope({ proposal, defaultOpen = false }: { propo
         if (open && event.key === "Escape" && !event.defaultPrevented) {
           event.preventDefault();
           trigger.current?.focus({ preventScroll: true });
+          // Back into view if the person scrolled away from it, moving no further than that takes.
+          trigger.current?.scrollIntoView({ block: "nearest" });
           setOpen(false);
         }
       }}

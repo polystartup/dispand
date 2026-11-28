@@ -72,7 +72,7 @@ export function TriggerList({ agentId }: { agentId: string }) {
               const last = tr.lastFires[0];
               return (
                 <li key={tr.id} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-4">
-                  <button type="button" onClick={() => setOpen(tr)} className="min-w-0 flex-1 text-left">
+                  <button type="button" onClick={() => setOpen(tr)} className="min-h-11 min-w-0 flex-1 text-left">
                     <span className="block truncate text-[15px] font-medium">{tr.name}</span>
                     <span className="block text-[13px] text-muted">{summary(tr)}</span>
                     {last && (

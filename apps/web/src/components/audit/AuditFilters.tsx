@@ -83,7 +83,7 @@ export function AuditFilters({ value, onChange }: { value: AuditSearch; onChange
       {value.jobId && (
         <span className="flex items-center gap-2 text-[13px]">
           {t("filters.job", { id: value.jobId })}
-          <button type="button" className="text-accent hover:underline" onClick={() => onChange({ ...value, jobId: undefined })}>
+          <button type="button" className="min-h-11 text-accent hover:underline" onClick={() => onChange({ ...value, jobId: undefined })}>
             {t("filters.clearJob")}
           </button>
         </span>

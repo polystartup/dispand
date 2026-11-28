@@ -175,7 +175,8 @@ function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
                 type="button"
                 onClick={data.onRemove}
                 aria-label={t("canvas.removeLink", { from: data.fromName, to: data.toName })}
-                className="pointer-events-auto absolute left-full ml-1 grid size-5 place-items-center rounded-full bg-surface text-danger shadow-card ring-1 ring-line transition hover:bg-hover"
+                // 44px to press, far enough from the add button that their targets don't overlap.
+                className="pointer-events-auto absolute left-full ml-6 grid size-5 place-items-center rounded-full bg-surface text-danger shadow-card ring-1 ring-line transition after:absolute after:-inset-3 hover:bg-hover"
               >
                 <X size={12} aria-hidden />
               </button>

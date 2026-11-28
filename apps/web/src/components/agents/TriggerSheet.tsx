@@ -173,7 +173,10 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
                   role="radio"
                   aria-checked={starts === s}
                   onClick={() => setStarts(s)}
-                  className={cn("rounded-lg py-1.5 text-[13px] font-medium transition", starts === s ? "bg-surface shadow-card" : "text-muted hover:text-fg")}
+                  className={cn(
+                    "min-h-11 rounded-lg py-1.5 text-[13px] font-medium transition",
+                    starts === s ? "bg-surface shadow-card" : "text-muted hover:text-fg",
+                  )}
                 >
                   {t(`sheet.start.${s}.label`)}
                 </button>

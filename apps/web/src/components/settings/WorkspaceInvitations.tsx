@@ -192,7 +192,7 @@ function InviteForm({ scope, names, pending, onCreated }: InviteProps) {
         <FormField htmlFor="invite-role" label={t("invitations.role")}>
           <select
             id="invite-role"
-            className="h-9 w-full rounded-md border border-input bg-surface px-3 text-sm"
+            className="min-h-11 w-full rounded-md border border-input bg-surface px-3 text-sm"
             value={role}
             disabled={invite.isPending}
             onChange={(event) => setRole(event.target.value === "manager" ? "manager" : "member")}

@@ -54,7 +54,7 @@ export function ConsultList({
         {MODES.map((m) => (
           <label
             key={m}
-            className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--color-accent)] ${mode === m ? "bg-hover font-medium" : "text-muted"}`}
+            className={`flex cursor-pointer flex-col rounded-lg px-2 py-1.5 text-[13px] has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-3 has-[:focus-visible]:outline-accent ${mode === m ? "bg-hover font-medium" : "text-muted"}`}
           >
             <input type="radio" name="consult-mode" value={m} checked={mode === m} onChange={() => onModeChange(m)} className="sr-only" />
             <span>{t(`consults.modes.${m}.label`)}</span>
@@ -85,7 +85,7 @@ export function ConsultList({
                       <button
                         type="button"
                         aria-label={t("consults.remove", { name })}
-                        className="shrink-0 rounded p-0.5 text-muted hover:bg-hover"
+                        className="-my-2 -mr-2 grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover"
                         onClick={() => onChange(entries.filter((x) => x.agentId !== e.agentId))}
                       >
                         <X className="size-3.5" />

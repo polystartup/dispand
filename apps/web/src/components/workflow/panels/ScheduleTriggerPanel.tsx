@@ -129,7 +129,10 @@ export function ScheduleTriggerPanel({
               role="radio"
               aria-checked={kind === k}
               onClick={() => pick(k)}
-              className={cn("rounded-lg py-1.5 text-[13px] font-medium transition", kind === k ? "bg-surface shadow-card" : "text-muted hover:text-fg")}
+              className={cn(
+                "min-h-11 rounded-lg py-1.5 text-[13px] font-medium transition",
+                kind === k ? "bg-surface shadow-card" : "text-muted hover:text-fg",
+              )}
             >
               {t(`schedule.kind.${k}`)}
             </button>

@@ -25,7 +25,7 @@ function ShellSignIn({ Place, invitation }: { Place: NonNullable<typeof shell.si
       fallback={(retry) => (
         <div role="alert" className="space-y-3">
           <p className="text-sm text-danger">{t("signIn.shellFailed")}</p>
-          <button type="button" className="text-sm font-medium text-accent hover:underline" onClick={retry}>
+          <button type="button" className="min-h-11 text-sm font-medium text-accent hover:underline" onClick={retry}>
             {t("signIn.retry")}
           </button>
         </div>

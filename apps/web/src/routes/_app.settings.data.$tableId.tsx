@@ -78,7 +78,7 @@ function TablePage() {
 
   return (
     <>
-      <Link to="/settings/data" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted hover:text-fg">
+      <Link to="/settings/data" className="mb-1 inline-flex min-h-11 items-center gap-1 text-[13px] text-muted hover:text-fg">
         <ChevronLeft size={14} aria-hidden /> {t("table.back")}
       </Link>
       <div className="mb-6 flex items-center gap-2">
@@ -95,7 +95,7 @@ function TablePage() {
               e.currentTarget.blur();
             }
           }}
-          className="min-w-0 flex-1 rounded-lg bg-transparent px-1 text-[28px] font-semibold leading-tight tracking-tight outline-none hover:bg-hover focus:bg-hover"
+          className="min-h-11 min-w-0 flex-1 rounded-lg bg-transparent px-1 text-[28px] font-semibold leading-tight tracking-tight outline-none hover:bg-hover focus:bg-hover"
         />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
