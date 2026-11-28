@@ -1,10 +1,9 @@
-import { type Answer, JOB_TOOLS_SERVER, type QuestionPayload, type SessionStart, type SessionToolPermissions } from "@dispand/runner-protocol";
+import { type Answer, JOB_TOOLS_SERVER, type QuestionPayload, type SessionStart, type SessionToolPermissions, TOOL_TEXTS } from "@dispand/runner-protocol";
 import { PROTECTED_DENIAL } from "./boundary.ts";
 import { deniedTools, narrowUnasked, runnerArgumentsAllowed, unaskedTools } from "./mcp.ts";
 import { fitsWhole } from "./sanitize.ts";
 
 export const TOOL_DISABLED = "This tool action is disabled for this session.";
-const TOO_LARGE = "The tool input is too large to show for approval (or holds characters that can't be shown): split it up.";
 
 type Permission = Extract<QuestionPayload, { kind: "permission" }>;
 
@@ -76,7 +75,7 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
       const asked = version;
       const payload: Permission = { kind: "permission", toolName: call.name, input: call.input, canAlwaysAllow };
       // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
-      if (!fitsWhole({ type: "question", questionId: "", payload })) return { allow: false, message: TOO_LARGE };
+      if (!fitsWhole({ type: "question", questionId: "", payload })) return { allow: false, message: TOOL_TEXTS.tooLargeToAsk };
       const answer = await ask(payload, signal);
       // Disabled while the owner was answering.
       if (denied.blocks(call.name)) return { allow: false, message: TOOL_DISABLED };
@@ -85,7 +84,7 @@ export function toolPolicy(start: Pick<SessionStart, "mcpServers">, options: Too
         if (permission.decision === "deny") denied.names.add(call.name);
         else if (permission.decision === "allow" && asked === version) unasked.set(call.name, serverOf(call)!);
       }
-      if (!permission || permission.decision === "deny") return { allow: false, message: permission?.message || "The owner denied this." };
+      if (!permission || permission.decision === "deny") return { allow: false, message: permission?.message || TOOL_TEXTS.denied };
       if (permission.decision === "allow-always" && canAlwaysAllow && asked === version) unasked.set(call.name, serverOf(call)!);
       return { allow: true };
     },

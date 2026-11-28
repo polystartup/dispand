@@ -1,10 +1,9 @@
 // `toolVerdict`: the one ordered verdict both of Claude Code's permission phases follow, over
 // every permission mode and every answer of the tool policy, the file boundary and native rules.
-import { ClaudePermissionMode } from "@dispand/runner-protocol";
+import { ClaudePermissionMode, TOOL_TEXTS } from "@dispand/runner-protocol";
 import { expect, test } from "vitest";
 import { PROTECTED_DENIAL, READ_ASK, READ_DENIAL } from "./boundary.ts";
 import { type ToolVerdict, toolVerdict } from "./claude.ts";
-import { TURN_DENIED } from "./outcome.ts";
 import { TOOL_DISABLED } from "./tool-policy.ts";
 
 type Decision = "allow" | "deny" | "ask" | "n/a";
@@ -56,8 +55,8 @@ const MCP_ASK = "Dispand asks the owner about every MCP tool call.";
  */
 const ROWS: [string, string, Facts, ToolVerdict | { bypass: ToolVerdict; others: ToolVerdict }][] = [
   // 1. A turn whose approval request was denied runs nothing else, whatever would allow it.
-  ["a call after a denied approval", "Read", { approved: false, read: "allow" }, deny(TURN_DENIED)],
-  ["an MCP call after a denied approval", "mcp__srv__act", { approved: false, policy: "allow" }, deny(TURN_DENIED)],
+  ["a call after a denied approval", "Read", { approved: false, read: "allow" }, deny(TOOL_TEXTS.notRunAfterDenial)],
+  ["an MCP call after a denied approval", "mcp__srv__act", { approved: false, policy: "allow" }, deny(TOOL_TEXTS.notRunAfterDenial)],
   ["another approval request after a denied one", "mcp__dispand__request_approval", { approved: false }, { decision: "cli", then: "allow" }],
   // 2. The tool policy's refusals, before anything that would let the call through.
   ["a disabled action", "mcp__srv__act", { policy: { deny: TOOL_DISABLED } }, deny(TOOL_DISABLED)],

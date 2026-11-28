@@ -52,4 +52,5 @@ export {
   REQUEST_APPROVAL_DESCRIPTION,
   REQUEST_APPROVAL_INPUT_SCHEMA,
 } from "./approval.ts";
+export { MAX_OUTPUTS_BYTES, TOOL_TEXTS } from "./tool-texts.ts";
 export { ASK, ASK_INPUT_SCHEMA, askDescription, askRequest, type AskRequest, type AskTarget, type ChoiceQuestion, offersAsk, renderAskText } from "./ask.ts";

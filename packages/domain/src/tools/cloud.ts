@@ -1,3 +1,4 @@
+import { TOOL_TEXTS } from "@dispand/runner-protocol";
 import { storedSentence } from "../messages/index.ts";
 import { inArray } from "drizzle-orm";
 import { recordToolCall } from "../audit/tool-call.ts";
@@ -68,7 +69,7 @@ export function installedToolCaller(db: Db, installed: InstalledTools, files?: F
         logError("tool files not kept", err, { ref: jobId });
         return null;
       });
-      return result ? { text: result.text, isError: result.isError } : { text: "The call ran, but the files it returned couldn't be kept.", isError: true };
+      return result ? { text: result.text, isError: result.isError } : { text: TOOL_TEXTS.filesNotKept, isError: true };
     },
   };
 }

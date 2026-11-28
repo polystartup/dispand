@@ -18,6 +18,7 @@ import {
   REQUEST_APPROVAL_DESCRIPTION,
   REQUEST_APPROVAL_INPUT_SCHEMA,
   type SessionStart,
+  TOOL_TEXTS,
 } from "@dispand/runner-protocol";
 import { CODEX_DENIAL_UNSUPPORTED, nativePermissions, nativeRuleForCall } from "../native-permissions.ts";
 import { codexDenied, codexDeniedEdit, sandboxDenied } from "../boundary.ts";
@@ -589,7 +590,7 @@ export function codexThreadOptions(ctx: {
   const spec = {
     type: "function" as const,
     name: SUBMIT_OUTPUTS,
-    description: "Hand your results back to Dispand. Call it once you have every value.",
+    description: TOOL_TEXTS.submitOutputsDescription,
     inputSchema: {
       type: "object",
       properties: Object.fromEntries(start.expectedOutputs.map((f) => [f.name, { type: "string", description: f.description ?? f.name }])),
