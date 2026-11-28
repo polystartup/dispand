@@ -41,6 +41,26 @@
   the frame's own window. Expand exists only on a running artifact and mounts the same frame
   with the same options in a dialog under the app's own line saying the agent generated it and not to enter secrets
   in it; the frame is given the app's theme (colors and font), no data.
+- **The frame's isolation holds in Chromium, Firefox and WebKit.** The end-to-end checks of the two
+  items above (`apps/web/e2e/assistant.spec.ts`: the probe artifact, the page policy alone, the foreign
+  messages, Expand) run in each browser (`E2E_BROWSER=firefox` or `webkit`, one of Playwright's own
+  builds: `pnpm exec playwright install firefox webkit`, then
+  `E2E_BROWSER=firefox E2E_PROJECT=assistant pnpm run test:e2e --project=assistant --grep "the lawyer|generated artifact|running artifact"`
+  from `apps/web`; the first of those specs sets the app up for the others). Checked on 2026-11-28 (Playwright 1.65.1:
+  Firefox 159, WebKit 27.2); every check passed in all three:
+  - an external script, stylesheet or image, and navigation of the frame, are not requested (the probe
+    host, which answers when asked, is never reached; a control frame shows that such a request would
+    be seen), nor is the frame's `fetch` to `/api/rpc`;
+  - a script of the frame can't reach the parent's document or `localStorage`; the inline scripts of the
+    artifact and of the bootstrap still run, under the page policy;
+  - Run, Expand, links, prompts and foreign `postMessage`s behave as in Chromium.
+
+  One difference, which holds nothing: reading `document.cookie` from the frame throws a `SecurityError`
+  in Chromium and Firefox, and answers with an empty string in WebKit (the test sets a cookie the page reads and checks the frame gets
+  nothing). CI runs Chromium only; the two other browsers run on
+  request, locally, and a page that reloads under a navigation in them (a Vite dev server re-optimizing
+  a module) is visited again (`visit` in the spec). Not covered by any browser's policy, and not tested:
+  WebRTC, which is why an artifact runs only after a click.
 - **First-run setup creates the initial owner.** Sign-up is disabled; `auth.setup` (public) creates the
   owner only while no user exists, and only with the one-time code from the server's settings
   (`DISPAND_SETUP_CODE`, random: `deploy/README.md`), so the first-run window can't be claimed from the network.
