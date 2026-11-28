@@ -43,6 +43,11 @@ test("Home's guard asks nothing while a tab with two workspaces names none of th
   expect(getFirstLaunch).not.toHaveBeenCalled();
 });
 
+test("Home's guard asks nothing of someone with no workspace left: the shell shows who to contact, not an error", async () => {
+  expect(await serverLoad([], "/")).toEqual({ status: 200 });
+  expect(getFirstLaunch).not.toHaveBeenCalled();
+});
+
 test("Home's guard asks in the workspace ?w names, and its first launch lands on the Assistant with ?w kept", async () => {
   getFirstLaunch.mockResolvedValue(true);
   expect(await serverLoad([workspaceA, workspaceB], "/?w=ws_b")).toEqual({ status: 307, location: "/assistant?w=ws_b" });

@@ -327,7 +327,8 @@ test("every procedure called into a refused organization answers its refusal, bu
     if (!refused) answered.push(path);
   }
   // Into no organization (first-run setup, the person, their workspaces to choose from, their profile, signing out a device),
-  // and `runs.stream`, which admits on each read.
+  // `runs.stream`, which admits on each read, and `workspace.contacts`, which does read an organization (its name and its
+  // owner's name and address) so a person with no workspace there still knows whom to ask.
   expect(answered).toEqual([
     "auth.setup",
     "auth.status",
@@ -336,6 +337,7 @@ test("every procedure called into a refused organization answers its refusal, bu
     "push.unsubscribe",
     "workspace.mine",
     "workspace.managed",
+    "workspace.contacts",
     "profile.get",
     "profile.update",
   ]);

@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { usePendingQuestionsStream } from "../components/shell/NotificationsBell.tsx";
 import { ChatSessionsProvider } from "../lib/chat-sessions.tsx";
+import { NoWorkspace } from "../components/shell/NoWorkspace.tsx";
 import { Sidebar } from "../components/shell/Sidebar.tsx";
 import { AuthCard } from "../components/auth/AuthCard.tsx";
 import { Button } from "@/components/ui/button";
@@ -29,10 +30,13 @@ export const Route = createFileRoute("/_app")({
  * unmounts with it, so its streams, polls and queries into that organization stop.
  */
 function AppShell() {
-  const organizationId = useWorkspaces().current?.organizationId;
+  const { workspaces, current } = useWorkspaces();
+  const organizationId = current?.organizationId;
   const refusal = useOrganizationRefusal(organizationId);
   // Another organization, or this one again later, asks the server anew.
   useEffect(() => forgetRefusals, [organizationId]);
+  const { user } = Route.useRouteContext();
+  if (!workspaces.length) return <NoWorkspace user={user} />;
   return refusal ? <Refused refusal={refusal} /> : <Shell />;
 }
 

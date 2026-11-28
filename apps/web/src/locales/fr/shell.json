@@ -63,5 +63,12 @@
     "title": "Organisation indisponible",
     "link": "Voir que faire",
     "retry": "Réessayer"
+  },
+  "noWorkspace": {
+    "title": "Aucun espace de travail",
+    "subtitle": "Vous êtes connecté·e, mais vous n’êtes affecté·e à aucun espace de travail.",
+    "ask": "Demandez au propriétaire de {{organization}} de vous en attribuer un :",
+    "noOrganization": "Vous ne faites partie d’aucune organisation. Demandez une nouvelle invitation à la personne qui vous a invité·e.",
+    "failed": "Impossible de charger qui contacter."
   }
 }

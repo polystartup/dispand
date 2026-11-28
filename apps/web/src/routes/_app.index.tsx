@@ -12,9 +12,9 @@ export const Route = createFileRoute("/_app/")({
     // In the tab's workspace, as the page will be (`?w`, else the only one).
     const { workspaces } = context.auth;
     const tab = workspaces.find((x) => x.workspaceId === search.w) ?? (workspaces.length === 1 ? workspaces[0] : undefined);
-    // Not pinned yet: nothing to ask in. `WorkspaceScope` pins `?w`, and that navigation runs this again.
-    if (!tab && workspaces.length > 1) return;
-    const data = tab ? { organizationId: tab.organizationId, workspaceId: tab.workspaceId } : null;
+    // Not pinned yet (`WorkspaceScope` pins `?w`, and that navigation runs this again), or none to open (the shell says so, `NoWorkspace`): nothing to ask in.
+    if (!tab) return;
+    const data = { organizationId: tab.organizationId, workspaceId: tab.workspaceId };
     if (await getFirstLaunch({ data })) throw redirect({ to: "/assistant", replace: true });
   },
   component: Home,

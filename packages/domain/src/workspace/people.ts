@@ -55,6 +55,32 @@ export const managed = signedInProcedure
   .use(notJob)
   .handler(({ context }) => managedWorkspaces(context.db, context.ownerId).orderBy(asc(workspaces.organizationId), asc(workspaces.id)));
 
+/**
+ * Whom a person with no workspace to open asks for one: the owner of each organization they belong
+ * to. Memberships are read under the person alone; each owner, in that organization's scope. It
+ * answers for an organization the install refuses too: the person still needs someone to ask.
+ * Every organization has one owner, never an archived person.
+ */
+export const contacts = signedInProcedure.use(notJob).handler(async ({ context }) => {
+  const memberships = await context.db
+    .select({ organizationId: organizations.id, organizationName: organizations.name })
+    .from(organizationMembers)
+    .innerJoin(organizations, eq(organizations.id, organizationMembers.organizationId))
+    .where(eq(organizationMembers.userId, context.ownerId))
+    .orderBy(asc(organizations.name), asc(organizations.id));
+  return Promise.all(
+    memberships.map((m) =>
+      inScope({ userId: context.ownerId, organizationId: m.organizationId }, () =>
+        context.db
+          .select({ name: user.name, email: user.email })
+          .from(organizationMembers)
+          .innerJoin(user, eq(user.id, organizationMembers.userId))
+          .where(and(eq(organizationMembers.organizationId, m.organizationId), eq(organizationMembers.role, "owner"))),
+      ).then(([owner]) => ({ ...m, owner: owner! })),
+    ),
+  );
+});
+
 export const people = signedInProcedure
   .use(notJob)
   .input(Scope)

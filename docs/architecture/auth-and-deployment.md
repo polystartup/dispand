@@ -35,7 +35,10 @@
   - Open, as they reach into no organization: `auth.*`, `workspace.mine`, `workspace.managed`,
     `profile.get`, `profile.update` (its Audit rows skip refused organizations),
     `push.unsubscribe`, Better Auth's routes and health. `workspace/gate.test.ts` calls every
-    procedure into a refused organization and fails on one that answers but these.
+    procedure into a refused organization and fails on one that answers but these and the next.
+  - Open although it reads an organization: `workspace.contacts` gives a person their
+    organizations' names and owners (name and address), refused ones included, so one with no
+    workspace there still knows whom to ask.
   - Open by design: the runner's pairing, update, plugin and package downloads, and connection.
     A turn already running is not cut and keeps what it fetches; what would start or resume is
     held instead (background work, below).
