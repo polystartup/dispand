@@ -31,18 +31,20 @@ async function accessible(page: Page, route: string, { ready = page.getByRole("h
 }
 
 /** What the pages show, made once for the run, by the first test that needs it. */
-let made: Promise<{ agentId: string; tableId: string; workflowId: string }> | undefined;
+let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string }> | undefined;
 function seed(page: Page) {
   made ??= (async () => {
+    // A name of its own: a worker started after a failed test seeds again, on the same app.
+    const name = `Axe scan ${Date.now()}`;
     await stem(page);
     const agent = await writer(page);
-    const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name: "Axe scan" });
+    const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
-    const workflow = await rpc<{ id: string }>(page, "workflows/create", { name: "Axe scan" });
+    const workflow = await rpc<{ id: string }>(page, "workflows/create", { name });
     await rpc(page, "workflows/update", {
       id: workflow.id,
-      name: "Axe scan",
+      name,
       def: {
         trigger: { type: "manual", field: { id: "n_chat", key: "chat", type: "chat", label: "Chat", agentId: agent.id, prompt: "Help." } },
         steps: [],
@@ -51,7 +53,7 @@ function seed(page: Page) {
     });
     const home = await rpc<{ id: string }>(page, "pages/home");
     await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
-    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id };
+    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name };
   })();
   return made;
 }
@@ -88,8 +90,9 @@ for (const scheme of ["light", "dark"] as const) {
 
     for (const route of scheme === "light" ? ROUTES : ALSO_IN_DARK) {
       test(`${route} has no accessibility violation`, async ({ page }) => {
+        const { name } = await seed(page);
         // Home shows the chat widget.
-        await accessible(page, route, route === "/" ? { ready: page.getByRole("region", { name: "Axe scan" }) } : {});
+        await accessible(page, route, route === "/" ? { ready: page.getByRole("region", { name }) } : {});
       });
     }
 
