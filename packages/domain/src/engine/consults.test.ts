@@ -198,6 +198,37 @@ test("a Job consults an agent: a Job of that agent answers, and the asker goes o
   expect(JSON.stringify(rows)).not.toMatch(/Which plan|Plan B/);
 });
 
+test("a consult waiting on a consulted Job's escalation is answered once the escalation settles", async () => {
+  const s = await setup();
+  await s.set(s.expert.id, { escalateMode: "auto" });
+  const asker = await s.start();
+  const q = await s.consult(asker.sessionId, s.expert.id, "Which plan?");
+  const consultedId = await s.consulted(q.id);
+  const sessionId = await s.sessionOf(consultedId);
+  // The consulted Job asks a person: no person started it, so it escalates to its agent's creator.
+  await s.emit(sessionId, {
+    type: "question",
+    questionId: "rq_person",
+    payload: { kind: "choice", questions: [{ question: "Which region?", header: "Region", options: [{ label: "EU" }], multiSelect: false }] },
+  });
+  const [escalation] = await s.context.db.select().from(questions).where(eq(questions.runnerQuestionId, "rq_person"));
+  expect(escalation).toMatchObject({ status: "pending", addresseeId: s.context.ownerId, route: { hop: 2 } });
+  // Meanwhile the consult waits, and so does its asker.
+  expect(await s.question(q.id)).toMatchObject({ status: "pending" });
+  expect(await s.stepOf(asker.runId)).toMatchObject({ status: "waiting" });
+  expect(s.adapter.answers.filter(([id]) => id === asker.sessionId)).toEqual([]);
+  // The person it reached answers: the consulted Job goes on, and its result answers the consult.
+  await call(
+    router.questions.answer,
+    { questionId: escalation!.id, answer: { kind: "choice", answers: { "Which region?": "EU" } } },
+    { context: { ...s.context, engine: s.engine() } },
+  );
+  expect(await s.answered(sessionId)).toEqual([{ kind: "choice", answers: { "Which region?": "EU" } }]);
+  await s.emit(sessionId, { type: "result", text: "Plan B, in the EU." });
+  expect(await s.answered(asker.sessionId)).toEqual([{ kind: "consult", outcome: "answered", text: "Plan B, in the EU." }]);
+  expect(await s.question(q.id)).toMatchObject({ status: "answered", answeredBy: { type: "agent", agentId: s.expert.id, runId: consultedId } });
+});
+
 test("a Job consults an agent another member of the workspace made: a Job of that agent answers", async () => {
   const s = await setup();
   await s.context.db.insert(user).values({ id: "user_bo", name: "Bo", email: "bo@example.com" });
