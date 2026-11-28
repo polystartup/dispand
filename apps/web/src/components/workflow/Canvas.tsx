@@ -190,6 +190,8 @@ function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
 // Not "group": React Flow styles that name itself.
 const nodeTypes = { card: Card, loop: Group };
 const edgeTypes = { link: Link };
+// 0.3 in React Flow 12's legacy units is 11.5%: v13 reads a number as pixels.
+const FIT = { maxZoom: 1, padding: "11.5%" } as const;
 const edgeId = (e: { from: string; to: string }) => `${e.from}->${e.to}`;
 
 /**
@@ -316,7 +318,7 @@ export function Canvas({
   const shape = `${nodes.map((n) => n.id).join()}|${edges.map((e) => e.id).join()}`;
   const flow = useRef<ReactFlowInstance<Node<CardData | GroupData>, Edge<LinkData>> | null>(null);
   useEffect(() => {
-    void flow.current?.fitView({ maxZoom: 1, padding: 0.3 });
+    void flow.current?.fitView(FIT);
   }, [shape]);
 
   return (
@@ -348,7 +350,7 @@ export function Canvas({
         }}
         nodesDraggable={false}
         fitView
-        fitViewOptions={{ maxZoom: 1, padding: 0.3 }}
+        fitViewOptions={FIT}
         minZoom={0.4}
         maxZoom={1.5}
         aria-label={t("canvas.label")}

@@ -1,20 +1,10 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { openApp } from "./session.ts";
+import { rpc, stem } from "./fixtures.ts";
 
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
-
-// Runs after the workflow specs (it adds a workflow) and before zz-questions.
 test("pages: new page from the sidebar, rename, a widget on it, delete", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
+  await stem(page);
   await openApp(page);
   await rpc(page, "workflows/create", { name: "Show on a page" });
   const nav = page.getByRole("navigation", { name: "Main" });

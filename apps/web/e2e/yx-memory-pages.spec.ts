@@ -1,6 +1,7 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { startFakeModel, type FakeModel } from "./fake-model.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // Memory on the table page and the agent page (Settings → Data → a table, Settings → Agents → an
 // agent): each has a Memory tab with the entries of its scope.
@@ -10,17 +11,6 @@ test.describe.configure({ timeout: 120_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 async function shoot(page: Page, name: string) {
   await page.screenshot({ path: test.info().outputPath(`${name}-light.png`), animations: "disabled" });

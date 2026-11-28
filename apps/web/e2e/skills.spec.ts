@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { hydrated } from "./hydrated.ts";
+import { stem } from "./fixtures.ts";
 import { openApp } from "./session.ts";
 
 async function shots(page: Page, name: string) {
@@ -18,8 +19,9 @@ async function shots(page: Page, name: string) {
 
 test("create a skill with a file, see it in the list, edit it and delete it", async ({ page }) => {
   await openApp(page);
+  await stem(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
-  // Only the platform skill, which the Assistant brought (settings.spec.ts started it).
+  // Only the platform skill, which Stem brought.
   const platform = page.getByRole("button", { name: /^dispand-platform/ });
   await expect(platform).toBeVisible();
   await expect(page.getByRole("button", { name: /^hello-check/ })).toHaveCount(0);
@@ -46,13 +48,13 @@ test("create a skill with a file, see it in the list, edit it and delete it", as
   await expect(row).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator("#" + (await row.getAttribute("aria-controls")))).toContainText("hello-check");
   await page.mouse.move(0, 0);
-  await shots(page, "slice-4-task-7-skills");
+  await shots(page, "skills-list");
 
   await page.getByRole("button", { name: "Edit hello-check" }).click();
   await expect(sheet.getByLabel("Instructions")).toHaveValue("# Hello check\n\nAnswer HELLO-CHECK, then run `scripts/greet.sh`.\n");
   await expect(sheet.getByText("greet.sh", { exact: true })).toBeVisible();
   await expect(sheet.getByText("17 B")).toBeVisible();
-  await shots(page, "slice-4-task-7-skill-editor");
+  await shots(page, "skill-editor");
   await sheet.getByLabel("Description").fill("Answers HELLO-CHECK.");
   await sheet.getByRole("button", { name: "Save" }).click();
   await expect(sheet).toBeHidden();

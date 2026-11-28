@@ -1,10 +1,11 @@
-import { expect as baseExpect, test, type Page } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { AUDIT_SENTINELS, auditRows, type AuditRow } from "./audit.ts";
 import { startFakeModel, type ChatMessage, type FakeModel, type Turn } from "./fake-model.ts";
 import { FakeRunner } from "./fake-runner.ts";
 import { hydrated } from "./hydrated.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // Audit's acceptance, on a small law firm set up here: a new email found by a poll starts the intake
 // Job, which reads and writes the firm's data (the row it makes fires the upkeep Job, on a paired
@@ -25,17 +26,6 @@ test.afterAll(async () => {
   await mail?.close();
   await model?.close();
 });
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 /** The spans the collector received, by trace. */
 async function spansOf(traceId: string): Promise<string[]> {

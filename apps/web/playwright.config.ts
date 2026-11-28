@@ -57,6 +57,8 @@ const projects = [
 
 export default defineConfig({
   testDir: "./e2e",
+  // Removes the cookies the setup projects saved.
+  globalTeardown: "./e2e/global-teardown.ts",
   // Required: more workers would share an app, its owner and its data (and zz-questions.spec.ts
   // and zzz-telemetry.spec.ts must stay last in their chain).
   workers: 1,
@@ -64,11 +66,13 @@ export default defineConfig({
   use: { trace: "retain-on-failure" },
   // "main-1" to "main-4": the chains of specs that share one app and one owner, run in file order,
   // each on its own server and database so CI runs them in parallel. Each starts with its setup
-  // (auth.setup.ts: the owner), then auth.spec.ts and settings.spec.ts (the Assistant and the agent
-  // Writer, which most specs need) in file order, and ends with yz-audit.spec.ts and zzz-telemetry.spec.ts, which
-  // check that nothing its chain did leaked into telemetry or Audit. "main-1" takes every spec the
-  // others don't name, so a new spec always runs. "custom-setup" and "assistant" (the day-one
-  // acceptance) need an app with nothing set up (first launch: no harness and no Assistant yet).
+  // (auth.setup.ts: the owner), then auth.spec.ts and settings.spec.ts, and ends with yz-audit.spec.ts
+  // and zzz-telemetry.spec.ts, which check that nothing its chain did leaked into telemetry or Audit.
+  // A spec makes what it needs (an agent, Stem) with e2e/fixtures.ts, so it passes alone; what still
+  // holds the order is the specs that assert an empty list (settings, tools, workflows: they come
+  // before what fills it) and zzz-telemetry, which reads the whole chain's telemetry. "main-1" takes
+  // every spec the others don't name, so a new spec always runs. "custom-setup" and "assistant" (the
+  // day-one acceptance) need an app with nothing set up (first launch: no harness, no Assistant).
   projects,
   webServer: [
     { command: "node e2e/collector.mjs", url: `${COLLECTOR}/health`, reuseExistingServer },

@@ -1,5 +1,6 @@
-import { expect as baseExpect, test, type Page } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
+import { rpc, stem } from "./fixtures.ts";
 import { openApp } from "./session.ts";
 
 // Generous waits: on a loaded machine the run, its stream and the fake runner can each take a few seconds.
@@ -7,18 +8,6 @@ const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
 
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
-
-// Runs after settings and workflows (which expect no agent or workflow yet) and before zz-questions.
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());
 
@@ -69,6 +58,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
     kind: "claude-code",
     permissionMode: "default",
   });
+  await stem(page, harness.id);
   const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Idea partner", harnessId: harness.id, systemPrompt: "" });
   const workflow = await rpc<{ id: string }>(page, "workflows/create", { name: "Plan an idea" });
   await rpc(page, "workflows/update", {
@@ -158,9 +148,9 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect(chat.getByRole("radio", { name: /Makers/ })).toBeVisible();
   // Also counted in the Inbox.
   await expect(page.getByTestId("pending-badge").first()).toHaveText("1");
-  await page.screenshot({ path: test.info().outputPath("task-10-home-chat-light.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-light.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "dark" });
-  await page.screenshot({ path: test.info().outputPath("task-10-home-chat-dark.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-dark.png"), animations: "disabled" });
   await page.emulateMedia({ colorScheme: "light" });
 
   // Opening Home again shows the conversation, with the question still waiting inline.
@@ -215,7 +205,7 @@ test("a chat widget on Home: inline question, confirmation, then the next step's
   await expect.poll(async () => (await chat.boundingBox())!.width).toBeLessThanOrEqual(360);
   // The grid lays out again for the new breakpoint: wait for it to settle, then nothing overflows.
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-  await page.screenshot({ path: test.info().outputPath("task-10-home-phone.png"), animations: "disabled" });
+  await page.screenshot({ path: test.info().outputPath("home-chat-phone.png"), animations: "disabled" });
 
   // The run, to debug it: the Runs tab of the workflows lists it, its page shows each step.
   await page.setViewportSize({ width: 1280, height: 1000 });

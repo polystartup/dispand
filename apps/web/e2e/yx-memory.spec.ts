@@ -1,6 +1,7 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // Memory's acceptance: a Job of an agent that learns into its own memory writes an entry, and the
 // next Job of that agent starts with it in its system prompt. A cloud harness on a scripted model.
@@ -10,17 +11,6 @@ test.describe.configure({ timeout: 120_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 /** Starts a Job of the trigger and waits for it to succeed. */
 async function runJob(page: Page, triggerId: string) {

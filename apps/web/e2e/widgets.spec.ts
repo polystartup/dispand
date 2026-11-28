@@ -1,19 +1,9 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 const expect = baseExpect.configure({ timeout: 15_000 });
 test.describe.configure({ timeout: 120_000 });
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 // A 1×1 PNG.
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
@@ -104,7 +94,7 @@ test("grid and table widgets show a table's rows and follow every change live", 
   await page.getByRole("button", { name: "Add widget" }).click();
   await page.getByRole("button", { name: "Workflow: Add a showcase row" }).click();
   await expect(page.getByRole("region", { name: "Add a showcase row" })).toBeVisible();
-  await shots(page, "task-11-widgets");
+  await shots(page, "table-widgets");
 
   // A name edited in Data in a second tab shows in both widgets, without a reload.
   const other = await context.newPage();

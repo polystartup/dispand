@@ -1,6 +1,7 @@
 import { expect as baseExpect, test, type Page } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 import { openApp } from "./session.ts";
+import { rpc, stem } from "./fixtures.ts";
 
 /** The app of the project this spec runs in ("main-1" to "main-4" each have their own). */
 const server = () => test.info().project.use.baseURL!;
@@ -9,17 +10,6 @@ const server = () => test.info().project.use.baseURL!;
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 120_000 });
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 let runner: FakeRunner | undefined;
 let harnessId: string | undefined;
@@ -56,12 +46,15 @@ test("the sidebar's Assistant: a chat whose messages reach its Job", async ({ pa
     permissionMode: "default",
   });
   harnessId = harness.id;
-  // settings.spec.ts started the Assistant on its own runner, gone since: moved to this one.
+  // Stem, on its own runner when another spec started it (gone since): moved to this one.
+  await stem(page, harness.id);
   const { agentId } = await rpc<{ agentId: string }>(page, "agents/assistant");
   const agent = await rpc<{ name: string; systemPrompt: string; skills: { packageId: string }[] }>(page, "agents/get", { id: agentId });
   const skillPackageIds = agent.skills.map((s) => s.packageId);
   await rpc(page, "agents/update", { id: agentId, name: agent.name, harnessId: harness.id, systemPrompt: agent.systemPrompt, skillPackageIds, toolIds: [] });
 
+  // The page read Stem's absence before it was started: a new load reads it.
+  await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Stem", exact: true }).click();
   await expect(page).toHaveURL(/\/assistant$/);
 
