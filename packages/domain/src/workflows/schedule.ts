@@ -46,9 +46,10 @@ const NAMES = [
 
 /**
  * `cron` written so croner reads it as cron-parser, which read schedules before it, did: names
- * as its numbers (`SUN-SUN` is Sunday alone), a step from one value runs to the field's end
- * (`5/15` is `5-59/15`, and day-of-week ends at 7, Sunday), and a step longer than its field keeps
- * only its start (every 100 hours is midnight), which croner refuses.
+ * as its numbers (`SUN-SUN` is Sunday alone), any weekday's nth as a range's (`*#2`, which croner
+ * refuses), a step from one value runs to the field's end (`5/15` is `5-59/15`, and day-of-week
+ * ends at 7, Sunday), and a step longer than its field keeps only its start (every 100 hours is
+ * midnight), which croner refuses.
  */
 function asSaved(cron: string): string {
   return cron
@@ -56,6 +57,7 @@ function asSaved(cron: string): string {
     .split(/\s+/)
     .map((field, i) =>
       field
+        .replace(/^[*?]#/, "0-6#")
         .replace(/[a-z]{3}/gi, (name) => {
           const n = NAMES[i]!.indexOf(name.toLowerCase());
           return n < 0 ? name : String(i === 3 ? n + 1 : n);
@@ -69,17 +71,26 @@ function asSaved(cron: string): string {
 }
 
 /**
- * How croner reads `cron` in `timezone`, in that zone's wall clock. A time a DST change repeats
- * fires once, on its first pass. A time a change skips fires once at the end of the gap (a daily
- * 02:30 at 03:00 in Paris), that day: a gap that runs to midnight (Nuuk's, from 23:00) skips it,
- * as cron-parser did. Unless the cron gives its minute or hour as `*` or a step (every 15
- * minutes, an hourly `15 * * * *`): that is an interval, in real time, firing on both passes of a
- * repeated hour and never in a skipped one.
+ * How far croner looks for a fire, from `from`: past the longest gap between two fires a cron can
+ * have, 40 years (a 29 February on a given weekday, across 2100). Left alone it searches to the
+ * year 10000, seconds of CPU for a cron whose every time falls in DST gaps (`* 2 * 3 0L` in Paris).
  */
-function read(cron: string, timezone: string): Cron {
+const SEARCH_YEARS = 50;
+
+/**
+ * How croner reads `cron` in `timezone` from `from` (`back`: up to it), in that zone's wall clock.
+ * A time a DST change repeats fires once, on its first pass. A time a change skips fires once at
+ * the end of the gap (a daily 02:30 at 03:00 in Paris), that day: a gap that runs to midnight
+ * (Nuuk's, from 23:00) skips it, as cron-parser did. Unless the cron gives its minute or hour as
+ * `*` or a step (every 15 minutes, an hourly `15 * * * *`): that is an interval, in real time,
+ * firing on both passes of a repeated hour and never in a skipped one.
+ */
+function read(cron: string, timezone: string, from: Date, back = false): Cron {
   // croner keeps a formatter for each spelling of a zone (`europe/paris`), for good: give it the canonical one.
   const zone = new Intl.DateTimeFormat("en-US", { timeZone: timezone }).resolvedOptions().timeZone;
-  return new Cron(asSaved(cron), { timezone: zone, mode: "5-part", fixedTimeRule: "no-wildcard" });
+  const year = from.getUTCFullYear();
+  const years = back ? `${year - SEARCH_YEARS}-${year + 1}` : `${year - 1}-${year + SEARCH_YEARS}`;
+  return new Cron(`0 ${asSaved(cron)} ${years}`, { timezone: zone, mode: "7-part", fixedTimeRule: "no-wildcard" });
 }
 
 /** Why `cron` in `timezone` can't be a schedule, for the owner, or null when it can. */
@@ -100,14 +111,14 @@ export function cronProblem(cron: string, timezone: string): Message | null {
 
 /** The first fire strictly after `after`. */
 export function nextFireAfter(cron: string, timezone: string, after: Date): Date {
-  const next = read(cron, timezone).nextRun(after);
-  if (!next) throw new Error("it never fires");
+  const next = read(cron, timezone, after).nextRun(after);
+  if (!next) throw new Error(`it doesn't fire in the next ${SEARCH_YEARS} years`);
   return next;
 }
 
 /** The next `n` fires strictly after `from`. */
 export function nextFires(cron: string, timezone: string, from: Date, n: number): Date[] {
-  return read(cron, timezone).nextRuns(n, from);
+  return read(cron, timezone, from).nextRuns(n, from);
 }
 
 /**
@@ -116,7 +127,7 @@ export function nextFires(cron: string, timezone: string, from: Date, n: number)
  */
 export function latestFireBetween(cron: string, timezone: string, since: Date, until: Date): Date | null {
   // `previousRuns` is strictly before its date, hence the +1 ms.
-  const [latest] = read(cron, timezone).previousRuns(1, new Date(until.getTime() + 1));
+  const [latest] = read(cron, timezone, until, true).previousRuns(1, new Date(until.getTime() + 1));
   return latest && latest > since ? latest : null;
 }
 

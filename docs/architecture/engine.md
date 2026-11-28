@@ -10,7 +10,10 @@
   minute or hour fires in real time, on both passes of a repeated hour and never in a skipped
   one. `asSaved` reads the forms cron-parser, used before, accepted as it did: names as its
   numbers (`SUN` is 0), `5/15` runs to the field's end, and a step longer than its field keeps
-  only its start; `cronProblem` refuses a colon, which croner reads as a one-time date) and steps (agent, condition, data) joined by edges; edges out of a condition carry
+  only its start, and `*#2` is `0-6#2`; `cronProblem` refuses a colon, which croner reads as a
+  one-time date. croner looks 50 years ahead, or back, at most: past the longest gap between two
+  fires (40 years, a 29 February on a given weekday), and a bound on the CPU a cron whose times
+  all fall in DST gaps costs) and steps (agent, condition, data) joined by edges; edges out of a condition carry
   its `branch` (`then` or `else`) and it gives `matched`, from `evaluateCondition` (`condition.ts`) on an
   upstream value. `workflows.delete` (the editor's menu, behind a confirmation) archives it
   (`archived_at`), refused while one of its runs is going: it no longer lists, opens or runs, its
@@ -147,7 +150,9 @@
   steps created in the same transaction (`Engine.createRun`, with `runs.trigger` `{ type:
   "schedule", scheduledFor }`). Each fire has its own savepoint: one that fails leaves its
   schedule due, and the next tick tries the same time again; otherwise `next_fire_at` moves past
-  now. After the commit each started run goes on (`continueRun`, retried every tick until it
+  now. A row keeps the `next_fire_at` it was stored with: one stored by cron-parser, before
+  croner read schedules, waits for that time, which differs from croner's only on a DST change
+  (a Paris 02:30 skipped in spring then fires at 03:30, for 03:00, once). After the commit each started run goes on (`continueRun`, retried every tick until it
   succeeds), without waiting for the tick's polls; if the process stops first, the next boot's `recover()` does. The schedule trigger completes with `scheduled_for` (ISO 8601
   with the schedule's offset; the run's start time for a manual start). Sessions of runs fired at
   boot start when their runner says hello.

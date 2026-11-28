@@ -184,6 +184,7 @@ test("reads the crons it accepts as before: steps, L, #, ? and names", () => {
     ["0 9 L * *", ["2026-11-30T09:00Z", "2026-12-31T09:00Z", "2027-01-31T09:00Z", "2027-02-28T09:00Z"]],
     ["0 9 * * 5L", ["2026-11-27T09:00Z", "2026-12-25T09:00Z", "2027-01-29T09:00Z", "2027-02-26T09:00Z"]],
     ["0 9 * * FRI#2", ["2026-12-11T09:00Z", "2027-01-08T09:00Z", "2027-02-12T09:00Z", "2027-03-12T09:00Z"]],
+    ["0 9 * * *#2", ["2026-12-08T09:00Z", "2026-12-09T09:00Z", "2026-12-10T09:00Z", "2026-12-11T09:00Z"]],
     ["0 9 ? * MON", ["2026-11-16T09:00Z", "2026-11-23T09:00Z", "2026-11-30T09:00Z", "2026-12-07T09:00Z"]],
     ["0 9 1 jan,JUL *", ["2027-01-01T09:00Z", "2027-07-01T09:00Z", "2028-01-01T09:00Z", "2028-07-01T09:00Z"]],
     ["0 9 * * 0-7", ["2026-11-16T09:00Z", "2026-11-17T09:00Z", "2026-11-18T09:00Z", "2026-11-19T09:00Z"]],
@@ -200,6 +201,15 @@ test("reads the crons it accepts as before: steps, L, #, ? and names", () => {
     expect(cronProblem(cron, "UTC"), cron).toBeNull();
     expect(nextFires(cron, "UTC", from, 4), cron).toEqual(fires.map((f) => new Date(f)));
   }
+});
+
+test("reads fires decades apart, and refuses a cron that never fires", () => {
+  // A fifth Monday in February: 29 February on a Monday, 40 years apart across 2100.
+  expect(nextFireAfter("0 9 * 2 1#5", "UTC", new Date("2026-11-15T00:00:00Z"))).toEqual(new Date("2044-02-29T09:00:00Z"));
+  expect(nextFireAfter("0 9 * 2 1#5", "UTC", new Date("2072-03-01T00:00:00Z"))).toEqual(new Date("2112-02-29T09:00:00Z"));
+  // Every minute of 02:00 on the last Sunday of March: Paris skips that hour each year.
+  expect(cronProblem("* 2 * 3 0L", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
+  expect(cronProblem("* 2 * 3 0L", "UTC")).toBeNull();
 });
 
 test("describeSchedule names presets and the timezone when it isn't Paris", () => {
