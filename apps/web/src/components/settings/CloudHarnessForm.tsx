@@ -67,7 +67,8 @@ function invalid(v: Values, harness: CloudHarness | undefined, t: TFunction<"har
   for (const issue of CloudFields.safeParse(input).error?.issues ?? []) fields[String(issue.path[0])] ??= t(`cloud.invalid.${String(issue.path[0])}` as never);
   // As on the server: an update that sends no key keeps the stored one, but only for the URL it was saved for.
   const kept = harness?.apiKeySet === true && (input.baseUrl ?? null) === (harness.baseUrl ?? null);
-  const refused = cloudRefusal(input.kind, input.baseUrl, input.apiKey === undefined ? kept : input.apiKey !== "");
+  // Not on an address that failed to parse: the rule reads it.
+  const refused = fields.baseUrl ? undefined : cloudRefusal(input.kind, input.baseUrl, input.apiKey === undefined ? kept : input.apiKey !== "");
   if (refused) fields[refused.field] ??= messageText(i18n, say(refused.key));
   return { fields };
 }
@@ -154,7 +155,6 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
 
   return (
     <form
-      noValidate
       className="space-y-5"
       onSubmit={(e) => {
         e.preventDefault();
@@ -163,7 +163,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
     >
       <form.AppField name="name">
         {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
-        {(f) => <f.TextField id="harness-name" label={t("sheet.name")} autoFocus />}
+        {(f) => <f.TextField id="harness-name" label={t("sheet.name")} aria-required autoFocus />}
       </form.AppField>
 
       <FormField label={t("cloud.provider")} htmlFor="harness-provider">
@@ -188,6 +188,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
             label={kind === "openai-compatible" ? t("cloud.baseUrl") : t("cloud.baseUrlOptional")}
             hint={kind === "openai-compatible" ? t("cloud.baseUrlHint") : t("cloud.baseUrlDefault")}
             type="url"
+            aria-required={kind === "openai-compatible"}
             onBlur={leave}
           />
         )}
@@ -201,6 +202,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
             hint={t("cloud.apiKeyHint")}
             type="password"
             autoComplete="off"
+            aria-required={kind !== "openai-compatible" && !keySet}
             placeholder={keySet ? t("cloud.keySet") : ""}
             onBlur={leave}
           />

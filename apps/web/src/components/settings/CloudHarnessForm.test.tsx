@@ -79,3 +79,13 @@ test("a submit sent twice before the first answers creates one harness", async (
   answer(saved);
   await waitFor(() => expect(onSaved).toHaveBeenCalledWith(saved, true));
 });
+
+test("a malformed address with a key entered is an error on its field, not a crash", async () => {
+  const { user } = form();
+  await user.click(screen.getByRole("button", { name: "Create harness" }));
+  await user.type(screen.getByLabelText("Name"), "Claude API");
+  await user.type(screen.getByLabelText("API key"), "sk-secret");
+  await user.type(screen.getByLabelText("Base URL (optional)"), "not a url");
+  await waitFor(() => expect(screen.getByLabelText("Base URL (optional)").getAttribute("aria-invalid")).toBe("true"));
+  expect(screen.getByLabelText("Name").getAttribute("aria-invalid")).toBeNull();
+});
