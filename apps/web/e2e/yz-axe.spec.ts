@@ -47,13 +47,25 @@ const scanned = (page: Page, known: string[] = []) => expect.poll(() => violatio
 
 /** A local Git repository holding the law-firm plugin and, in another, a marketplace listing it (the dev server takes file:// URLs for e2e only). */
 function lawFirmMarketplace(dir: string) {
-  const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
+  const env = {
+    ...process.env,
+    GIT_AUTHOR_NAME: "T",
+    GIT_AUTHOR_EMAIL: "t@example.com",
+    GIT_COMMITTER_NAME: "T",
+    GIT_COMMITTER_EMAIL: "t@example.com",
+    GIT_CONFIG_GLOBAL: "/dev/null",
+  };
   const repo = (dir: string, files: Record<string, string>) => {
     for (const [path, content] of Object.entries(files)) {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       writeFileSync(join(dir, path), content);
     }
-    for (const args of [["init", "-q", "-b", "main"], ["add", "-A"], ["commit", "-q", "-m", "fixture"]]) execFileSync("git", args, { cwd: dir, env });
+    for (const args of [
+      ["init", "-q", "-b", "main"],
+      ["add", "-A"],
+      ["commit", "-q", "-m", "fixture"],
+    ])
+      execFileSync("git", args, { cwd: dir, env });
     return pathToFileURL(dir).href;
   };
   const root = join(import.meta.dirname, "../../../packages/domain/src/plugins/fixtures/law-firm");
@@ -63,7 +75,9 @@ function lawFirmMarketplace(dir: string) {
       .map((d) => [relative(root, join(d.parentPath, d.name)), readFileSync(join(d.parentPath, d.name), "utf8")]),
   );
   const plugin = repo(join(dir, "plugin"), files);
-  return repo(join(dir, "market"), { ".claude-plugin/marketplace.json": JSON.stringify({ name: "axe-firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin } }] }) });
+  return repo(join(dir, "market"), {
+    ".claude-plugin/marketplace.json": JSON.stringify({ name: "axe-firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin } }] }),
+  });
 }
 
 /** What the pages show, made once for the run, by the first test that needs it. */
@@ -76,7 +90,14 @@ function seed(page: Page) {
     const agent = await writer(page);
     // A cloud harness of its own: the Writer's depends on which spec made it.
     const harnessName = `${name} model`;
-    await rpc(page, "harnesses/create", { type: "cloud", name: harnessName, kind: "openai-compatible", baseUrl: "http://127.0.0.1:9/v1", model: "axe-model", systemPrompt: "" });
+    await rpc(page, "harnesses/create", {
+      type: "cloud",
+      name: harnessName,
+      kind: "openai-compatible",
+      baseUrl: "http://127.0.0.1:9/v1",
+      model: "axe-model",
+      systemPrompt: "",
+    });
     const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
