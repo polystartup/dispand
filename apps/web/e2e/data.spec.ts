@@ -66,7 +66,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await page.reload();
   await expect(cell(page, "Name")).toHaveText("Dispand");
   await expect(cell(page, "Short description")).toHaveText("Agents and workflows");
-  await shots(page, "task-5-grid");
+  await shots(page, "table-grid");
 
   // Rename a field, then move it left.
   await page.getByRole("button", { name: "Field menu: Website URL" }).click();
@@ -104,7 +104,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await page.getByRole("menuitem", { name: "Change type" }).click();
   await page.getByLabel("New type").selectOption({ label: "Number" });
   await expect(page.getByRole("dialog").getByRole("status")).toHaveText("1 value will be converted, 1 can't be and will be cleared.");
-  await shots(page, "task-5-retype");
+  await shots(page, "table-retype");
   await page.getByRole("button", { name: "Change type" }).click();
   await expect(page.getByRole("dialog")).toBeHidden();
   await expect(cell(page, "Budget")).toHaveText("12");
@@ -124,7 +124,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   // The list shows the table and its rows.
   await page.getByRole("link", { name: "Data" }).first().click();
   await expect(page.getByRole("link", { name: /Projects/ })).toContainText("1 row");
-  await shots(page, "task-5-tables");
+  await shots(page, "tables-list");
 });
 
 // A 1×1 PNG, and an SVG that would run a script if it were shown inline.
@@ -197,7 +197,7 @@ test("sort, filter, row detail and files", async ({ page }) => {
   await detail.getByLabel("Upload to Logo").setInputFiles({ name: "evil.svg", mimeType: "image/svg+xml", buffer: SVG });
   await expect(detail.getByRole("link", { name: "evil.svg" })).toBeVisible();
   await expect(detail.getByRole("img", { name: "evil.svg" })).toHaveCount(0);
-  await shots(page, "task-6-row-detail");
+  await shots(page, "row-detail");
   await page.keyboard.press("Escape");
   await expect(detail).toBeHidden();
   await expect(cell(page, "Mission statement", 1)).toHaveText("Let agents do the busywork.");
@@ -209,5 +209,5 @@ test("sort, filter, row detail and files", async ({ page }) => {
   const src = await logo.getByRole("img", { name: "logo.png" }).getAttribute("src");
   const res = await page.request.get(src!);
   expect(res.headers()["content-type"]).toBe("image/png");
-  await shots(page, "task-6-grid");
+  await shots(page, "sorted-filtered-grid");
 });

@@ -104,7 +104,7 @@ test("grid and table widgets show a table's rows and follow every change live", 
   await page.getByRole("button", { name: "Add widget" }).click();
   await page.getByRole("button", { name: "Workflow: Add a showcase row" }).click();
   await expect(page.getByRole("region", { name: "Add a showcase row" })).toBeVisible();
-  await shots(page, "task-11-widgets");
+  await shots(page, "table-widgets");
 
   // A name edited in Data in a second tab shows in both widgets, without a reload.
   const other = await context.newPage();

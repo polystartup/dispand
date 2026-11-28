@@ -10,9 +10,9 @@ cd "$(git rev-parse --show-toplevel)"
 exact='10\.[0-9]+\.[0-9]+\.[0-9]+|192\.168\.|172\.(1[6-9]|2[0-9]|3[01])\.|\.home\.|/home/[a-z]|LXC|NPM\b|self-hosted,'
 # Case-insensitive: infrastructure product names and words.
 loose='proxmox|opnsense|doppler|nginx proxy manager|home network|home lan'
-# Case-insensitive: a numbered design, spec, script, plan, decision, task or rule, a lettered plan
-# or ruling, a section sign, a tour's step.
-cited='\b(design|spec|script|plan|decision|task|rule)s? [0-9]{1,2}(\.[0-9]+)*\b|\b(plan|ruling) [a-z][0-9]+\b|§ ?[0-9]|tour step [0-9]'
+# Case-insensitive: a numbered design, spec, script, plan, decision, task, rule or slice (spelled with
+# a space or a hyphen, as in a file name), a lettered plan or ruling, a section sign, a tour's step.
+cited='\b(design|spec|script|plan|decision|task|rule|slice)s?[ -][0-9]{1,2}(\.[0-9]+)*\b|\b(plan|ruling)[ -][a-z][0-9]+\b|§ ?[0-9]|tour step [0-9]'
 
 # git grep exits 1 when nothing matches (fine) and above 1 on a real error (fatal).
 search() {

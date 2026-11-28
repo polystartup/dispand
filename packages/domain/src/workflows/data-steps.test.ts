@@ -284,7 +284,7 @@ test("a data step parses, with a find-rows limit of 20 by default and at most 10
 });
 
 test("a workflow saved by an earlier version still parses", () => {
-  const slice1 = {
+  const earlier = {
     trigger: {
       type: "manual",
       field: { id: "n_chat", key: "brief", type: "chat", label: "Brief", agentId: "agent_1", prompt: "Ask what to build." },
@@ -292,7 +292,7 @@ test("a workflow saved by an earlier version still parses", () => {
     steps: [{ id: "n_plan", key: "plan", type: "agent", name: "Plan", agentId: "agent_1", prompt: "Plan {{brief.idea}} for {{brief.audience}}." }],
     edges: [{ from: "n_chat", to: "n_plan" }],
   };
-  expect(WorkflowDef.parse(slice1)).toEqual(slice1);
+  expect(WorkflowDef.parse(earlier)).toEqual(earlier);
 });
 
 test("validateDataSteps names the table of a filtered field that is gone", () => {
