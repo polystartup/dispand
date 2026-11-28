@@ -1,5 +1,6 @@
 // An entry built on the packed packages, as another server would build one: its own pool and
 // database, then the app and `serve`. Run by `check.sh` from a project outside the repository.
+import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 import { currentScope, migrateDb, openDb } from "@dispand/domain";
@@ -28,6 +29,13 @@ const rpc = (path: string, input: unknown, headers: Record<string, string> = {})
 // The web bundle imports the domain package this entry imports: one module, so one scope.
 const webDomain = createRequire(createRequire(import.meta.url).resolve("@dispand/web")).resolve("@dispand/domain");
 expect((await import(pathToFileURL(webDomain).href)).currentScope === currentScope, "currentScope is the same function in both imports");
+
+// Every subpath the packed domain lists imports.
+const manifest = JSON.parse(readFileSync(new URL("../package.json", import.meta.resolve("@dispand/domain")), "utf8"));
+for (const subpath of Object.keys(manifest.exports)) {
+  await import(`@dispand/domain${subpath.slice(1)}`, subpath.endsWith(".json") ? { with: { type: "json" } } : undefined);
+  console.log(`ok - imports @dispand/domain${subpath.slice(1)}`);
+}
 
 expect((await (await rpc("auth/status", {})).json()).json.needsSetup === true, "auth.status before setup");
 const owner = { name: "Ada", email: "ada@example.com", password: "correct horse battery", setupCode: process.env.DISPAND_SETUP_CODE };

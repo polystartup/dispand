@@ -191,7 +191,7 @@
   client files and `server.ts`; its root is `dist/server/server.js`, with its declarations
   (`dist/types`, emitted by `tsc` on pack). With the packed domain and runner protocol it
   installs outside the repository, and an entry there compiles under `strict` with no shim
-  (`apps/web/package-check/check.sh` checks it on PostgreSQL). The packages stay `private`: nothing publishes them.
+  (`apps/web/package-check/check.sh` checks it on PostgreSQL, in CI too). The packages stay `private`: nothing publishes them.
 - **Design:** tokens in `apps/web/src/styles/tokens.css` (Hanken Grotesk over the system fonts,
   neutral palette, one `--accent`); light/dark follow the system, the user menu stores an
   override in `localStorage`, applied as `data-theme` on the root before first paint; Tailwind's

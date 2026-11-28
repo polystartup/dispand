@@ -36,7 +36,7 @@ cat >"$work/tsconfig.json" <<EOF
   "files": ["entry.ts", "types.ts", "shell.ts"]
 }
 EOF
-(cd "$work" && pnpm install --config.minimum-release-age=0 >/dev/null)
+(cd "$work" && pnpm install >/dev/null)
 
 cd "$work"
 # The entries compile under `strict` against the packed declarations, with no shim.
@@ -48,4 +48,4 @@ DATABASE_URL="$DATABASE_URL" \
   DISPAND_SECRET_KEY="$(openssl rand -base64 32)" \
   DISPAND_FILES_DIR="$work/files" \
   PORT=3998 HOST=127.0.0.1 \
-  node entry.ts
+  node --import @dispand/web/telemetry-preload entry.ts
