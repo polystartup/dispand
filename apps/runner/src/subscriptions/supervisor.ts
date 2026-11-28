@@ -117,7 +117,7 @@ export function storeServer(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs
   return CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs), launch);
 }
 
-/** The ChatGPT user and account Codex is signed in as, as a digest; undefined when it isn't signed in to ChatGPT. */
+/** The ChatGPT user and account Codex is signed in as, as a digest; undefined when it isn't signed in to ChatGPT. Throws when the read fails. */
 async function codexIdentity(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | undefined> {
   const rpc = await storeServer(codexPath, env, timeoutMs);
   try {
@@ -183,6 +183,8 @@ export class Subscriptions {
   private readonly gaveUp = new Map<Harness, string>();
   private readonly asks = new Map<string, (reply: Enrolled) => void>();
   private store: Promise<unknown> = Promise.resolve();
+  /** The last Codex identity a status read got, with the login file's stamp then: a read that fails reports it. */
+  private lastCodex: { stamp: string; identity: SubscriptionStatus["identity"] } | undefined;
 
   constructor(options: SubscriptionsOptions) {
     this.options = options;
@@ -231,12 +233,23 @@ export class Subscriptions {
     console.error("dispand-runner: the provider refused the Claude Code subscription's token: sign in again with `dispand-runner sign-in claude-code`");
   }
 
-  /** The statuses for `hello` and `clis.replied`, read now: nothing is kept from an earlier report. */
+  /**
+   * The statuses for `hello` and `clis.replied`, read now. A Codex read that fails (an error, a
+   * timeout) is never a sign-out, which would end its enrollment: it reports the last identity read
+   * from the same login file, or nothing when there is none (after a start, or a new login).
+   */
   async status(): Promise<SubscriptionStatus[]> {
     const out: SubscriptionStatus[] = [];
     const codex = this.codex;
     if (codex && (await this.stamp()) !== "none") {
-      const identity = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).catch(() => undefined);
+      const read = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).then(
+        (identity) => ({ identity }),
+        () => undefined,
+      );
+      const stamp = await this.stamp();
+      // Signed out is what a read says; a failed one keeps the last word on this login file.
+      if (read) this.lastCodex = read.identity ? { stamp, identity: read.identity } : undefined;
+      const identity = read ? read.identity : this.lastCodex?.stamp === stamp ? this.lastCodex.identity : undefined;
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);

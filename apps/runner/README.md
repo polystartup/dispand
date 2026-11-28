@@ -330,7 +330,9 @@ tool's page.
 - Both logins live in `<config dir>/subscriptions/<harness>`, apart from the pairing config, the
   model keys and the CLIs' default homes; no worker mounts them and no session may touch them. In
   the image under gVisor, the running runner reports each to Dispand (`clis.subscriptions`), read
-  again at each report, with whether a fresh sign-in is needed. Codex's identity is a SHA-256
+  again at each report, with whether a fresh sign-in is needed. A Codex read that fails reports the
+  last identity read from the same login file, never a sign-out, so it doesn't end the enrollment;
+  with none yet (after a start or a new sign-in), Codex is left out until a read succeeds. Codex's identity is a SHA-256
   digest of its ChatGPT user and account; its renewal runs in the supervisor, one at a time, and
   stops asking the provider after 3 failures in a row until you sign in again. Claude Code's
   identity is a SHA-256 digest of the sign-in's own random id, not of the token and not of a
