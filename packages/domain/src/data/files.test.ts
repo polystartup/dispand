@@ -404,10 +404,16 @@ test("a refused batch of a Job's files writes nothing to disk", async () => {
   expect(await usedBytes(context)).toBe(0);
 });
 
-test("a manager can't change the limit, an organization owner can", async () => {
+test("a manager can't change the limit, nor a Job, an organization owner can", async () => {
   const context = await ownerContext();
   await call(router.workspace.setFilesLimit, { mib: 500 }, { context });
   expect((await context.db.select({ quota: organizations.filesQuotaBytes }).from(organizations))[0]!.quota).toBe(500 * 1024 * 1024);
+  // A Job, even one the owner started, is refused as an agent (`notJob`); a manager below, as a person who isn't the owner.
+  const job = { ...context, job: await jobIdentity(context) };
+  await expect(call(router.workspace.setFilesLimit, { mib: 5 }, { context: job })).rejects.toMatchObject({
+    code: "FORBIDDEN",
+    data: { key: "auth.personOnly" },
+  });
   await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
   await context.db.insert(workspaceMembers).values({ workspaceId: context.workspaceId, userId: context.ownerId, role: "manager" });
   await expect(call(router.workspace.setFilesLimit, { mib: 5 }, { context })).rejects.toMatchObject({ code: "FORBIDDEN", data: { key: "auth.ownerOnly" } });

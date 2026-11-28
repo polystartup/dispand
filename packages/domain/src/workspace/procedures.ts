@@ -10,7 +10,7 @@ import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { agents, organizations, triggers, workspaceSettings } from "../db/schema.ts";
 import { checkpointOf } from "../engine/roots.ts";
 import { filesLimitOf } from "../data/files.ts";
-import { managerProcedure, memberProcedure } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure, notJob } from "../rpc/context.ts";
 import { DEFAULT_TIMEZONE } from "../workflows/schedule.ts";
 
 /** How many Jobs of one root cause go before a person is asked to let them go on. */
@@ -43,16 +43,19 @@ const filesLimit = memberProcedure.handler(async ({ context }) => ({ mib: await 
  * lower limit only refuses the next files that would pass it. The organization owner's only:
  * raising it lets agents fill the disk.
  */
-const setFilesLimit = managerProcedure.input(z.object({ mib: FilesLimitMib })).handler(async ({ input, context }) => {
-  // The organization's: its owner's only, whatever their workspace role.
-  if (context.access.role !== "owner") throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
-  const { organizationId } = context.access;
-  await context.db
-    .update(organizations)
-    .set({ filesQuotaBytes: input.mib * 1024 * 1024 })
-    .where(eq(organizations.id, organizationId));
-  return { mib: input.mib };
-});
+const setFilesLimit = managerProcedure
+  .use(notJob)
+  .input(z.object({ mib: FilesLimitMib }))
+  .handler(async ({ input, context }) => {
+    // The organization's: its owner's only, whatever their workspace role.
+    if (context.access.role !== "owner") throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
+    const { organizationId } = context.access;
+    await context.db
+      .update(organizations)
+      .set({ filesQuotaBytes: input.mib * 1024 * 1024 })
+      .where(eq(organizations.id, organizationId));
+    return { mib: input.mib };
+  });
 
 /** Whether strict permissions are on (off until set). */
 const strictPermissions = memberProcedure.handler(async ({ context }) => ({ strict: await strictPermissionsOf(context.db, context.access.workspaceId) }));

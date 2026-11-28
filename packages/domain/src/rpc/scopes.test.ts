@@ -140,5 +140,6 @@ test("a procedure refuses a Job only through notJob, and these are the procedure
     "workspace.registrationPreview",
     "workspace.removePerson",
     "workspace.revokeInvitation",
+    "workspace.setFilesLimit",
   ]);
 });

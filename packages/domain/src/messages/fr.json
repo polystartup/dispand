@@ -625,7 +625,7 @@
     "signIn": "Connectez-vous pour continuer.",
     "setupRefused": "La configuration initiale n’est pas autorisée.",
     "setupThrottled": "Trop de codes de configuration erronés : patientez quelques minutes et réessayez.",
-    "ownerOnly": "Seul le propriétaire peut faire cela, pas un agent.",
+    "ownerOnly": "Seul le propriétaire peut faire cela.",
     "personOnly": "Seule une personne peut faire cela, pas un agent."
   },
   "audit": {
