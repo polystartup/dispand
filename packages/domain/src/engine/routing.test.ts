@@ -11,6 +11,7 @@ import { FakeAdapter } from "./test-support.ts";
 import { JOB_STEP } from "./job-def.ts";
 import { firstHop, HOP_MS, NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 import { escalationScopes } from "./discovery.ts";
+import { NOT_LISTED } from "./consults.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
 
 const choice = (to?: string): QuestionPayload => ({
@@ -113,6 +114,20 @@ describe("routing", () => {
       addresseeId: s.context.ownerId,
       route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] },
     });
+  });
+
+  test("a deleted creator falls through to the organization owner", async () => {
+    const s = await setup();
+    // Deleting Bob leaves his agent with no creator (`agents.owner_id` set null).
+    await s.context.db.delete(user).where(eq(user.id, "user_bob"));
+    expect((await s.context.db.select({ ownerId: agents.ownerId }).from(agents).where(eq(agents.id, s.agent.id)))[0]).toEqual({ ownerId: null });
+    const { sessionId } = await s.start();
+    for (const payload of [choice(), choice("user_out")])
+      expect(await s.ask(sessionId, payload)).toMatchObject({
+        status: "pending",
+        addresseeId: s.context.ownerId,
+        route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] },
+      });
   });
 
   test("a creator who is the organization owner is asked once", async () => {
@@ -275,6 +290,48 @@ describe("routing", () => {
       expect(await hop()).toBeNull();
       await s.context.db.update(agents).set({ escalateMode: "auto" }).where(eq(agents.id, agentId));
       expect(await hop()).toEqual({ addresseeId: s.context.ownerId, route: { hop: 3, reason: "orgOwner", tried: [s.context.ownerId] } });
+    });
+
+    test("a Stem Job is offered no ask, even with both modes on auto: a consult it sends is refused, a question goes to its person", async () => {
+      const s = await setup();
+      const { agentId } = await inScope({ userId: "user_bob", organizationId: s.context.organizationId, workspaceId: s.context.workspaceId }, () =>
+        ensureAssistant(s.context.db, "user_bob", s.agent.harnessId, s.context.workspaceId),
+      );
+      await s.context.db.update(agents).set({ consultMode: "auto", escalateMode: "auto" }).where(eq(agents.id, agentId));
+      // A plugin update's conflicts handed to Bob's Stem.
+      const runId = await s.context.db.transaction((tx) =>
+        s.engine.createJob(tx, {
+          ownerId: "user_bob",
+          agentId,
+          cause: { kind: "stem", pluginId: "plugin_x", depth: 0 },
+          firing: { type: "stem", pluginId: "plugin_x", outputs: { conflicts: "[]" } },
+        }),
+      );
+      await s.engine.continueRun(runId);
+      const step = await vi.waitFor(async () => {
+        const [row] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+        if (!row?.sessionId) throw new Error("not started");
+        return row;
+      });
+      const { start } = s.adapter.starts.find((x) => x.start.sessionId === step.sessionId)!;
+      expect(start).toMatchObject({ restricted: true });
+      expect(start.askTargets).toBeUndefined();
+      expect(start.escalate).toBeUndefined();
+      // An ask to an agent anyway: refused, and no Job of that agent is made.
+      const consult = await s.ask(step.sessionId!, { kind: "consult", agentId: s.agent.id, question: "Which one?" });
+      expect(consult).toMatchObject({
+        kind: "consult",
+        status: "answered",
+        consultRunId: null,
+        answer: { kind: "consult", outcome: "failed", text: NOT_LISTED },
+      });
+      await vi.waitFor(() => expect(s.adapter.answers.some(([, id]) => id === consult.runnerQuestionId)).toBe(true));
+      // A question to a person goes to Bob, whose Stem it is, whatever it names.
+      expect(await s.ask(step.sessionId!, choice("user_ann"))).toMatchObject({
+        status: "pending",
+        addresseeId: "user_bob",
+        route: { hop: 0, reason: "starter", tried: ["user_bob"] },
+      });
     });
 
     test("a Job no person started keeps the escalation routing", async () => {
