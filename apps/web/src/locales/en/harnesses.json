@@ -115,7 +115,16 @@
     "effortDefault": "Provider default",
     "low": "Low",
     "medium": "Medium",
-    "high": "High"
+    "high": "High",
+    "invalid": {
+      "name": "Enter a name of at most 100 characters.",
+      "baseUrl": "Enter an http:// or https:// address.",
+      "apiKey": "The key is too long.",
+      "model": "Enter a model id of at most 200 characters.",
+      "systemPrompt": "The prompt is too long, or holds a character that can't be stored.",
+      "maxTokens": "Enter a whole number from 1 to 1,000,000.",
+      "temperature": "Enter a number from 0 to 2."
+    }
   },
   "addRunner": {
     "createFailed": "Could not create the runner. Check the name and try again.",

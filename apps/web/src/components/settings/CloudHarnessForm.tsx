@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { orpc } from "../../lib/api.ts";
 import { refusal } from "../../lib/refusal.ts";
+import { cloudErrors, cloudInput, NO_EFFORT } from "./cloud-harness-input.ts";
 import type { Harness } from "./HarnessSheet.tsx";
 import { FormField } from "./parts.tsx";
 
@@ -18,7 +19,6 @@ type Effort = NonNullable<CloudHarness["effort"]>;
 const KINDS: Kind[] = ["anthropic", "openai", "openai-compatible"];
 
 const defaultModels: Record<Kind, string> = { anthropic: "claude-opus-5-5", openai: "", "openai-compatible": "" };
-const NO_EFFORT = "default";
 const OTHER = "__other";
 
 type Props = {
@@ -29,7 +29,7 @@ type Props = {
 
 /** The form of a cloud harness: a provider's API with a key, sealed on the server. */
 export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
-  const { t } = useTranslation("harnesses");
+  const { t, i18n } = useTranslation("harnesses");
   const [name, setName] = useState(harness?.name ?? "");
   const [kind, setKind] = useState<Kind>(harness?.kind ?? "anthropic");
   const [baseUrl, setBaseUrl] = useState(harness?.baseUrl ?? "");
@@ -74,22 +74,17 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
     setProbe({ kind: next, baseUrl: baseUrl.trim(), apiKey: apiKey.trim() });
   }
 
+  const input = cloudInput({ name, kind, baseUrl, apiKey, clearKey, model, systemPrompt, maxTokens, effort, temperature });
+  // Checked on the first submit, then as the fields change, so an error goes as its field is put right.
+  const [attempted, setAttempted] = useState(false);
+  const errors = attempted ? cloudErrors(input, harness, t, i18n) : {};
+
   async function save() {
     setError(null);
-    const fields = {
-      type: "cloud" as const,
-      name,
-      kind,
-      ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-      ...(apiKey.trim() ? { apiKey: apiKey.trim() } : clearKey ? { apiKey: "" } : {}),
-      model: model.trim(),
-      systemPrompt,
-      ...(maxTokens.trim() ? { maxTokens: Number(maxTokens) } : {}),
-      ...(effort !== NO_EFFORT && kind !== "openai-compatible" ? { effort } : {}),
-      ...(temperature.trim() && kind === "openai-compatible" ? { temperature: Number(temperature) } : {}),
-    };
+    setAttempted(true);
+    if (Object.keys(cloudErrors(input, harness, t, i18n)).length) return;
     try {
-      const saved = harness ? await update.mutateAsync({ ...fields, id: harness.id }) : await create.mutateAsync(fields);
+      const saved = harness ? await update.mutateAsync({ ...input, id: harness.id }) : await create.mutateAsync(input);
       onSaved(saved, !harness);
     } catch (e) {
       setError(refusal(e, t("sheet.saveFailed"), ["BAD_REQUEST"]));
@@ -118,9 +113,9 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         void save();
       }}
     >
-      <FormField label={t("sheet.name")} htmlFor="harness-name">
+      <FormField label={t("sheet.name")} htmlFor="harness-name" error={errors.name}>
         {/* eslint-disable-next-line jsx-a11y/no-autofocus -- focus moves into the sheet just opened */}
-        <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={100} required autoFocus />
+        <Input id="harness-name" value={name} onChange={(e) => setName(e.target.value)} aria-required autoFocus />
       </FormField>
 
       <FormField label={t("cloud.provider")} htmlFor="harness-provider">
@@ -142,6 +137,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         label={kind === "openai-compatible" ? t("cloud.baseUrl") : t("cloud.baseUrlOptional")}
         htmlFor="harness-base-url"
         hint={kind === "openai-compatible" ? t("cloud.baseUrlHint") : t("cloud.baseUrlDefault")}
+        error={errors.baseUrl}
       >
         <Input
           id="harness-base-url"
@@ -149,12 +145,16 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
           onBlur={leave}
-          maxLength={2000}
-          required={kind === "openai-compatible"}
+          aria-required={kind === "openai-compatible"}
         />
       </FormField>
 
-      <FormField label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")} htmlFor="harness-api-key" hint={t("cloud.apiKeyHint")}>
+      <FormField
+        label={kind === "openai-compatible" ? t("cloud.apiKeyOptional") : t("cloud.apiKey")}
+        htmlFor="harness-api-key"
+        hint={t("cloud.apiKeyHint")}
+        error={errors.apiKey}
+      >
         <Input
           id="harness-api-key"
           type="password"
@@ -163,8 +163,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
           onChange={(e) => setApiKey(e.target.value)}
           onBlur={leave}
           placeholder={keySet ? t("cloud.keySet") : ""}
-          maxLength={4000}
-          required={kind !== "openai-compatible" && !keySet}
+          aria-required={kind !== "openai-compatible" && !keySet}
         />
       </FormField>
       {harness?.apiKeySet && kind === "openai-compatible" && !apiKey && (
@@ -178,6 +177,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         label={t("cloud.model")}
         htmlFor="harness-model"
         hint={models.isError ? t("cloud.modelsFailed") : modelsInput ? undefined : t("cloud.enterKey")}
+        error={errors.model}
       >
         {picking ? (
           <Select value={listed.some((m) => m.id === model) ? model : ""} onValueChange={(v) => (v === OTHER ? setOtherModel(true) : setModel(v))}>
@@ -194,21 +194,21 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
             </SelectContent>
           </Select>
         ) : (
-          <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} maxLength={200} required />
+          <Input id="harness-model" value={model} onChange={(e) => setModel(e.target.value)} aria-required />
         )}
       </FormField>
 
-      <FormField label={t("cloud.systemPrompt")} htmlFor="harness-system-prompt" hint={t("cloud.systemPromptHint")}>
+      <FormField label={t("cloud.systemPrompt")} htmlFor="harness-system-prompt" hint={t("cloud.systemPromptHint")} error={errors.systemPrompt}>
         <Textarea id="harness-system-prompt" value={systemPrompt} onChange={(e) => setSystemPrompt(e.target.value)} rows={3} />
       </FormField>
 
-      <FormField label={t("cloud.maxTokens")} htmlFor="harness-max-tokens">
-        <Input id="harness-max-tokens" type="number" min={1} max={1_000_000} step={1} value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
+      <FormField label={t("cloud.maxTokens")} htmlFor="harness-max-tokens" error={errors.maxTokens}>
+        <Input id="harness-max-tokens" type="number" step={1} value={maxTokens} onChange={(e) => setMaxTokens(e.target.value)} />
       </FormField>
 
       {kind === "openai-compatible" ? (
-        <FormField label={t("cloud.temperature")} htmlFor="harness-temperature">
-          <Input id="harness-temperature" type="number" min={0} max={2} step={0.1} value={temperature} onChange={(e) => setTemperature(e.target.value)} />
+        <FormField label={t("cloud.temperature")} htmlFor="harness-temperature" error={errors.temperature}>
+          <Input id="harness-temperature" type="number" step={0.1} value={temperature} onChange={(e) => setTemperature(e.target.value)} />
         </FormField>
       ) : (
         <FormField label={t("cloud.effort")} htmlFor="harness-effort">
@@ -232,7 +232,7 @@ export function CloudHarnessForm({ harness, onClose, onSaved }: Props) {
         </p>
       )}
       <div className="flex items-center gap-2 pt-1">
-        <Button type="submit" disabled={busy || !name.trim() || !model.trim()}>
+        <Button type="submit" disabled={busy}>
           {harness ? t("sheet.save") : t("sheet.create")}
         </Button>
         <Button type="button" variant="ghost" onClick={onClose}>

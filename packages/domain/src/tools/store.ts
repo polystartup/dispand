@@ -8,7 +8,7 @@ import { PluginServer } from "@dispand/runner-protocol";
 import { agentTools, pluginFiles, plugins, runners, tools as toolsTable } from "../db/schema.ts";
 import type { PluginComponents } from "../plugins/read-plugin.ts";
 import { runnerTarget } from "../plugins/runner-servers.ts";
-import { isLoopback } from "../harnesses/procedures.ts";
+import { isLoopback } from "../harnesses/model.ts";
 import { newId } from "../ids.ts";
 import { logError } from "../log.ts";
 import { message, plainText, stored, type MessageKey, type MessageValues } from "../messages/index.ts";

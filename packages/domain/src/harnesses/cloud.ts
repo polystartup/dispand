@@ -2,9 +2,9 @@ import { and, eq } from "drizzle-orm";
 import type { Db } from "../db/client.ts";
 import { harnesses } from "../db/schema.ts";
 import { secretAad, type SecretBox } from "../secrets.ts";
+import type { CloudKind } from "./model.ts";
 
-export type CloudKind = "anthropic" | "openai" | "openai-compatible";
-export const CLOUD_KINDS = ["anthropic", "openai", "openai-compatible"] as const satisfies readonly CloudKind[];
+export { CLOUD_KINDS, type CloudKind } from "./model.ts";
 
 /** What a cloud session needs from its harness, without the key. */
 export type CloudHarnessConfig = {
