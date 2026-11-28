@@ -70,8 +70,8 @@ export default defineConfig({
   // and zzz-telemetry.spec.ts, which check that nothing its chain did leaked into telemetry or Audit.
   // A spec makes what it needs (an agent, Stem) with e2e/fixtures.ts, so it passes alone, and asserts
   // only on what it made (a list is never asserted empty: the unit tests do that). What still holds the
-  // order is settings.spec.ts, which starts Stem on a first launch (so it comes before any spec that
-  // calls `stem`), and zzz-telemetry, which reads the whole chain's telemetry. "main-1" takes
+  // order is auth.spec.ts, which needs a first launch (it comes first), and zzz-telemetry, which reads
+  // the whole chain's telemetry. "main-1" takes
   // every spec the others don't name, so a new spec always runs. "custom-setup" and "assistant" (the
   // day-one acceptance) need an app with nothing set up (first launch: no harness, no Assistant).
   projects,
