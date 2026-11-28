@@ -1,0 +1,24 @@
+{
+  "name": "@dispand/bench-load",
+  "version": "0.1.0",
+  "license": "Apache-2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "typecheck": "tsc -p .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dispand/runner": "workspace:*",
+    "@dispand/runner-protocol": "workspace:*",
+    "@orpc/client": "^1.16.4",
+    "pg": "^8.23.1"
+  },
+  "devDependencies": {
+    "@dispand/domain": "workspace:*",
+    "@orpc/server": "^1.16.4",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "vitest": "^5.1.1"
+  }
+}

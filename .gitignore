@@ -13,3 +13,4 @@ test-results/
 apps/web/public/runner/
 .data/
 apps/web/playwright/.auth/
+bench/load/results/
