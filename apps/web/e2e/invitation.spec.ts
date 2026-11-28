@@ -1,4 +1,7 @@
+import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+
+const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
 // The main project shares the owner its setup created, whom the page is signed in as.
 test("an invitation registers a new recipient, then returns an existing account to its preview after sign-in", async ({ page, browser, baseURL }) => {
@@ -46,6 +49,25 @@ test("an invitation registers a new recipient, then returns an existing account 
     await recipient.getByRole("button", { name: "Accept invitation" }).click();
     await expect(recipient.getByText("Invitation accepted")).toBeVisible();
     expect(requests.some((url) => url.includes(next))).toBe(false);
+
+    // Taken off the workspace, the signed-in person finds whom to ask instead of an error.
+    const asOwner = { ...headers, "dispand-organization": scope.organizationId };
+    const directory = await page.request.post("/api/rpc/organization/directory", { headers: asOwner, data: {} });
+    const pat = (await directory.json()).json.people.find((p: { email: string }) => p.email === email);
+    const taken = await page.request.post("/api/rpc/organization/unassign", {
+      headers: asOwner,
+      data: { json: { userId: pat.userId, workspaceId: scope.workspaceId } },
+    });
+    expect(taken.ok()).toBe(true);
+    await recipient.goto("/");
+    await expect(recipient.getByRole("heading", { name: "No workspace yet" })).toBeVisible();
+    await expect(recipient.getByText("Ask the owner of Northwind to add you to one:")).toBeVisible();
+    await expect(recipient.getByRole("link", { name: "ada@example.com" })).toBeVisible();
+    await recipient.screenshot({ path: test.info().outputPath("no-workspace-light.png"), animations: "disabled" });
+    expect((await new AxeBuilder({ page: recipient }).withTags(WCAG).analyze()).violations).toEqual([]);
+    await recipient.emulateMedia({ colorScheme: "dark" });
+    await recipient.screenshot({ path: test.info().outputPath("no-workspace-dark.png"), animations: "disabled" });
+    expect((await new AxeBuilder({ page: recipient }).withTags(WCAG).analyze()).violations).toEqual([]);
   } finally {
     await ctx.close();
   }

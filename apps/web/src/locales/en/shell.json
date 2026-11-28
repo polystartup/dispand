@@ -63,5 +63,12 @@
     "title": "Organization unavailable",
     "link": "See what to do",
     "retry": "Try again"
+  },
+  "noWorkspace": {
+    "title": "No workspace yet",
+    "subtitle": "You're signed in, but you aren't assigned to any workspace.",
+    "ask": "Ask the owner of {{organization}} to add you to one:",
+    "noOrganization": "You don't belong to any organization. Ask the person who invited you for a new invitation.",
+    "failed": "Could not load who to contact."
   }
 }

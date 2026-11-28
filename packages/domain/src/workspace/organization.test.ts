@@ -134,6 +134,28 @@ test("removing someone from the organization takes every assignment and invitati
   expect(await db.select().from(organizationMembers).where(eq(organizationMembers.userId, owner.ownerId))).toMatchObject([{ role: "owner" }]);
 });
 
+test("workspace.contacts gives a person with no workspace each of their organizations' owner, and no other organization's", async () => {
+  const { owner, pat, db, organizationId } = await organization();
+  await db.update(organizations).set({ name: "Zenith" }).where(eq(organizations.id, "foreign-org"));
+  await db.insert(user).values({ id: "stranger", name: "Stranger", email: "stranger@example.com" });
+  await db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "stranger", role: "owner" });
+  await call(api.unassign, { userId: "pat", workspaceId: owner.workspaceId }, { context: owner });
+  expect(await call(router.workspace.mine, undefined, { context: pat })).toEqual([]);
+  const own = { organizationId, organizationName: "My organization", owner: { name: "Ada", email: "ada@example.com" } };
+  expect(await call(router.workspace.contacts, undefined, { context: pat })).toEqual([own]);
+  // In a second organization too: each with its own owner.
+  await db.insert(organizationMembers).values({ organizationId: "foreign-org", userId: "pat", role: "member" });
+  expect(await call(router.workspace.contacts, undefined, { context: pat })).toEqual([
+    own,
+    { organizationId: "foreign-org", organizationName: "Zenith", owner: { name: "Stranger", email: "stranger@example.com" } },
+  ]);
+  // Someone in no organization learns of none, and a Job asks nothing.
+  await db.delete(organizationMembers).where(eq(organizationMembers.userId, "pat"));
+  expect(await call(router.workspace.contacts, undefined, { context: pat })).toEqual([]);
+  const job = await jobIdentity({ ...owner, headers: new Headers([...owner.headers, [WORKSPACE_HEADER, owner.workspaceId]]) });
+  await expect(call(router.workspace.contacts, undefined, { context: { ...owner, job } })).rejects.toMatchObject({ code: "FORBIDDEN" });
+});
+
 test("an organization has exactly one owner: a transfer demotes then promotes in one transaction, or changes nothing", async () => {
   const { owner, pat, db, organizationId } = await organization();
   const ownerOf = async () =>

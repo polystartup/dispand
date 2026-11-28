@@ -105,3 +105,24 @@ test("a link that isn't an https address or a path of this origin shows no link"
     "https://dispand.test/settings?x=1",
   ]);
 });
+
+test("a person with no workspace left sees whom to ask in each organization, and can sign out, instead of an error", async () => {
+  fake.workspace.contacts.mockResolvedValue([
+    { organizationId: "org_a", organizationName: "Acme", owner: { name: "Grace", email: "grace@example.com" } },
+    { organizationId: "org_b", organizationName: "Globex", owner: { name: "Linus", email: "linus@example.com" } },
+  ]);
+  await renderWorkspaceRouter([], "/", AppShell);
+  expect(await screen.findByRole("heading", { name: "No workspace yet" })).toBeTruthy();
+  expect(await screen.findByText("Ask the owner of Acme to add you to one:")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "grace@example.com" }).getAttribute("href")).toBe("mailto:grace@example.com");
+  expect(screen.getByText("Ask the owner of Globex to add you to one:")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "linus@example.com" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: /Account menu/ })).toBeTruthy();
+  expect(screen.queryByText("Sidebar")).toBeNull();
+});
+
+test("a person in no organization is told to ask for a new invitation", async () => {
+  fake.workspace.contacts.mockResolvedValue([]);
+  await renderWorkspaceRouter([], "/", AppShell);
+  expect(await screen.findByText(/You don't belong to any organization/)).toBeTruthy();
+});

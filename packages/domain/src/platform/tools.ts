@@ -884,6 +884,7 @@ export const NOT_TOOLS: string[] = [
   "workspace.create",
   "workspace.rename",
   "workspace.managed",
+  "workspace.contacts",
   "workspace.people",
   "workspace.invite",
   "workspace.invitations",

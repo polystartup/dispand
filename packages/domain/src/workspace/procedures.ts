@@ -4,7 +4,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { acceptInvitation, invitation, invitations, invite, registerInvitation, registrationPreview, revokeInvitation } from "./invitations.ts";
 import { lifecycle } from "./lifecycle.ts";
-import { managed, mine, people, removePerson } from "./people.ts";
+import { contacts, managed, mine, people, removePerson } from "./people.ts";
 import { reviewSignals } from "../assistant/review.ts";
 import { strictPermissionsOf } from "../agents/tool-ask.ts";
 import { agents, organizations, triggers, workspaceSettings } from "../db/schema.ts";
@@ -107,6 +107,7 @@ export const workspace = {
   revokeInvitation,
   mine,
   managed,
+  contacts,
   people,
   removePerson,
   checkpoint,

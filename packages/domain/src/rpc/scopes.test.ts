@@ -47,9 +47,10 @@ function organizationScopes(): string[] {
   return found;
 }
 
-test("only orgOwner procedures open an organization scope", () => {
-  // The organization scope (no workspace) is opened in one place: `orgOwner`, after `authorizeOrganization`.
-  expect(organizationScopes()).toEqual(["rpc/context.ts:orgOwner"]);
+test("only orgOwner procedures and workspace.contacts open an organization scope", () => {
+  // The organization scope (no workspace) is opened in `orgOwner`, after `authorizeOrganization`, and in `workspace.contacts`,
+  // for the organizations the caller's own membership rows (read under the person alone) name: it reads their owners, nothing else.
+  expect(organizationScopes()).toEqual(["rpc/context.ts:orgOwner", "workspace/people.ts:contacts"]);
   const all = procedures(router);
   expect(all.length).toBeGreaterThan(100);
   // Every organization procedure goes through `orgOwner`.
@@ -130,6 +131,7 @@ test("a procedure refuses a Job only through notJob, and these are the procedure
     "runs.removeQueued",
     "runs.steerQueued",
     "workspace.acceptInvitation",
+    "workspace.contacts",
     "workspace.invitation",
     "workspace.invitations",
     "workspace.invite",
