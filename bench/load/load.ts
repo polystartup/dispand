@@ -189,6 +189,7 @@ export class Load {
       }
       const begun = performance.now();
       while (!signal.aborted && !(turn.done && turn.delivered === turn.emitted.length)) {
+        // Counted, and the ramp stops on it: its deltas leave no latency once the turn is replaced.
         if (performance.now() - begun > 120_000) {
           this.count("turns stalled");
           break;

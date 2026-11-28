@@ -51,7 +51,7 @@ from competing with the app, pin them apart, for example
 | `--app-cpus`, `--app-cpuset` | none | Docker's `--cpus` and `--cpuset-cpus` for the app (`0`: no limit). |
 | `--pg-cpus`, `--pg-cpuset`, `--pg-memory` | `1`, none, `2g` | The same for PostgreSQL. The default is a small managed database's size. |
 | `--max-p99` | `10000` | Stop the ramp after a step whose delivery p99 is above this many ms. |
-| `--cpu-prof` | off | Profile the app's process (`node --cpu-prof`). The profile is written when the app stops, in the results directory. |
+| `--cpu-prof` | off | Profile the app's process (`node --cpu-prof`). The profile is written when the app stops, in the results' `app/` directory. |
 | `--out` | `bench/load/results/<time>` | Where the results go. |
 | `--keep` | off | Leave the containers running at the end. |
 

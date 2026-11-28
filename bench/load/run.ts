@@ -43,9 +43,11 @@ const num = (name: keyof typeof args) => Number(args[name]);
 const here = fileURLToPath(new URL(".", import.meta.url));
 // Absolute: Docker mounts it, and would take a bare name for a volume's.
 const outDir = resolve(args.out ?? join(here, "results", new Date().toISOString().replace(/[:.]/g, "-")));
-mkdirSync(outDir, { recursive: true });
-// The app's user in the image (uid 1000) writes its samples and profile there, whoever runs this.
-chmodSync(outDir, 0o777);
+// The app's user in the image (uid 1000) writes its samples and profile in a directory of its own,
+// made here, whoever runs this.
+const appDir = join(outDir, "app");
+mkdirSync(appDir, { recursive: true });
+chmodSync(appDir, 0o777);
 const id = `dispand-bench-${process.pid}`;
 const steps = args.chats.split(",").map(Number);
 
@@ -103,7 +105,7 @@ try {
     // The app reaches the database on the same host network.
     databaseUrl,
     limits: { cpus: args["app-cpus"], cpuset: args["app-cpuset"] },
-    outDir,
+    outDir: appDir,
     probe: join(here, "probe.ts"),
     cpuProfile: args["cpu-prof"],
   });
@@ -154,7 +156,7 @@ try {
     const undelivered = load.undelivered();
     const [pgCpu1, appCpu1, commits1, top] = await Promise.all([containerCpu(pgName), containerCpu(appName), db.commits(), db.top()]);
     const busy1 = hostBusy();
-    const probe = readFileSync(join(outDir, "probe.jsonl"), "utf8")
+    const probe = readFileSync(join(appDir, "probe.jsonl"), "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Sample)
@@ -210,12 +212,12 @@ try {
       ].join("  "),
     );
     // A delta still waiting counts too: a stream that stopped delivering has no latency to report.
-    if (Math.max(d?.p99 ?? 0, undelivered.oldestMs) > num("max-p99")) {
-      console.log(`delivery p99 or the oldest undelivered delta above ${args["max-p99"]} ms: the ramp stops here`);
+    if (Math.max(d?.p99 ?? 0, undelivered.oldestMs) > num("max-p99") || rates["turns stalled"]) {
+      console.log(`delivery p99 or the oldest undelivered delta above ${args["max-p99"]} ms, or a turn stalled: the ramp stops here`);
       break;
     }
   }
 } finally {
   await cleanUp();
 }
-console.log(`results: ${join(outDir, "results.json")}${args["cpu-prof"] ? `; CPU profile in ${outDir} (pnpm bench:load:profile <file>)` : ""}`);
+console.log(`results: ${join(outDir, "results.json")}${args["cpu-prof"] ? `; CPU profile in ${appDir} (pnpm bench:load:profile <file>)` : ""}`);

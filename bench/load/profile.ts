@@ -64,7 +64,7 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
     console.log(`\n${title}`);
     for (const row of rows) console.log(`${(row.share * 100).toFixed(1).padStart(5)}%  ${(row.ms / 1000).toFixed(1).padStart(7)} s  ${row.key}`);
   };
-  console.log(`${(result.totalMs / 1000).toFixed(1)} s of CPU sampled, ${(result.idleMs / 1000).toFixed(1)} s idle`);
+  console.log(`${(result.totalMs / 1000).toFixed(1)} s sampled busy (not all of it CPU: see the run for that), ${(result.idleMs / 1000).toFixed(1)} s idle`);
   print("Self time by package", result.selfByPackage);
   print("Self time by function", result.selfByName);
   print("Total time by function (itself and what it called)", result.totalByName);
