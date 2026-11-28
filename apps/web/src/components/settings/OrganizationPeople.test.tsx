@@ -93,8 +93,28 @@ test("handing ownership over says what the owner keeps, and tells the page once 
   await user.click(await screen.findByRole("button", { name: "Make Pat the organization’s owner" }));
   const dialog = screen.getByRole("dialog", { name: "Make Pat the owner?" });
   expect(within(dialog).getByText(/you lose access to all of them until Pat gives you one/)).toBeTruthy();
+  expect(within(dialog).getByText(/Pat \(pat@example\.com\) gets every right/)).toBeTruthy();
   await user.click(within(dialog).getByRole("button", { name: "Make owner" }));
   expect(fake.organization.transferOwnership.mock.calls[0]![0]).toEqual({ userId: "pat" });
+  await waitFor(() => expect(transferred).toHaveBeenCalledWith("Pat"));
+});
+
+test("a transfer that ends after the page was left still tells it, so it reads its rights again", async () => {
+  fake.organization.directory.mockResolvedValue(directory);
+  let done!: () => void;
+  fake.organization.transferOwnership.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        done = () => resolve({ transferred: true });
+      }),
+  );
+  const { unmount } = mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Make Pat the organization’s owner" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Make owner" }));
+  await waitFor(() => expect(fake.organization.transferOwnership).toHaveBeenCalled());
+  unmount();
+  done();
   await waitFor(() => expect(transferred).toHaveBeenCalledWith("Pat"));
 });
 

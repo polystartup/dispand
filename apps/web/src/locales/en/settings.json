@@ -111,7 +111,7 @@
     "makeOwner": "Make owner",
     "makeOwnerPerson": "Make {{name}} the organization’s owner",
     "makeOwnerConfirm": "Make {{name}} the owner?",
-    "makeOwnerEffect": "{{name}} gets every right in every workspace of the organization, and you become a member. Only {{name}} can give you the ownership back.",
+    "makeOwnerEffect": "{{name}} ({{email}}) gets every right in every workspace of the organization, and you become a member. Only {{name}} can give you the ownership back.",
     "makeOwnerKeeps": "You keep only your roles in {{workspaces, list}}.",
     "makeOwnerKeepsNone": "You have no role in any workspace, so you lose access to all of them until {{name}} gives you one.",
     "madeOwner": "{{name}} now owns the organization.",

@@ -28,7 +28,12 @@ export function OrganizationPeople({ retentionDays, onTransferred }: { retention
   const unassign = useMutation(orpc.organization.unassign.mutationOptions());
   const archive = useMutation(orpc.organization.archiveMember.mutationOptions());
   const remove = useMutation(orpc.organization.removeMember.mutationOptions());
-  const transfer = useMutation(orpc.organization.transferOwnership.mutationOptions());
+  const transfer = useMutation(
+    orpc.organization.transferOwnership.mutationOptions({
+      // The mutation's own callback, not one of `mutate`'s: the page reads its rights again even if left meanwhile.
+      onSuccess: (_done, { userId }) => onTransferred(directory.data!.people.find((p) => p.userId === userId)!.name),
+    }),
+  );
   const failed = assign.error ?? unassign.error ?? archive.error ?? remove.error ?? transfer.error;
   const busy = assign.isPending || unassign.isPending || archive.isPending || remove.isPending || transfer.isPending;
   if (directory.isError)
@@ -69,7 +74,7 @@ export function OrganizationPeople({ retentionDays, onTransferred }: { retention
             kept={kept}
             focusStatus={() => status.current?.focus()}
             onRemove={() => act(() => remove.mutate({ userId: person.userId }, done(t("organizationPeople.left", { name: person.name }))))}
-            onTransfer={() => act(() => transfer.mutate({ userId: person.userId }, { onSuccess: () => onTransferred(person.name) }))}
+            onTransfer={() => act(() => transfer.mutate({ userId: person.userId }))}
             onAssign={(workspaceId, role) =>
               act(() =>
                 assign.mutate(
@@ -151,7 +156,7 @@ function MemberRow({
               label={t("organizationPeople.makeOwner")}
               aria={t("organizationPeople.makeOwnerPerson", { name: person.name })}
               title={t("organizationPeople.makeOwnerConfirm", { name: person.name })}
-              effect={`${t("organizationPeople.makeOwnerEffect", { name: person.name })} ${
+              effect={`${t("organizationPeople.makeOwnerEffect", { name: person.name, email: person.email })} ${
                 kept.length ? t("organizationPeople.makeOwnerKeeps", { workspaces: kept }) : t("organizationPeople.makeOwnerKeepsNone", { name: person.name })
               }`}
               onConfirm={onTransfer}

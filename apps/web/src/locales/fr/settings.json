@@ -111,7 +111,7 @@
     "makeOwner": "Désigner propriétaire",
     "makeOwnerPerson": "Désigner {{name}} propriétaire de l’organisation",
     "makeOwnerConfirm": "Désigner {{name}} comme propriétaire ?",
-    "makeOwnerEffect": "{{name}} obtient tous les droits sur tous les espaces de travail de l’organisation, et vous en devenez membre. Seul·e {{name}} pourra vous rendre la propriété.",
+    "makeOwnerEffect": "{{name}} ({{email}}) obtient tous les droits sur tous les espaces de travail de l’organisation, et vous en devenez membre. Seul·e {{name}} pourra vous rendre la propriété.",
     "makeOwnerKeeps": "Vous ne gardez que vos rôles dans : {{workspaces, list}}.",
     "makeOwnerKeepsNone": "Vous n’avez de rôle dans aucun espace de travail : vous perdez l’accès à tous jusqu’à ce que {{name}} vous en donne un.",
     "madeOwner": "{{name}} est désormais propriétaire de l’organisation.",
