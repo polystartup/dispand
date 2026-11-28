@@ -1,7 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
@@ -14,7 +13,7 @@ import { hydrated } from "./hydrated.ts";
 // The dialogs, sheets and menus opened from them are scanned while open, in both too.
 
 // A menu is not a modal to axe, so the page behind it, hidden from assistive technology, counts as
-// hiding focusable content (the dialogs and sheets pass): the issue listing the open findings.
+// hiding focusable content (the dialogs and sheets pass): #646.
 const MENU_KNOWN = ["aria-hidden-focus"];
 const TAGS = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -47,7 +46,7 @@ async function accessible(
 const scanned = (page: Page, known: string[] = []) => expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
 
 /** A local Git repository holding the law-firm plugin and, in another, a marketplace listing it (the dev server takes file:// URLs for e2e only). */
-function lawFirmMarketplace() {
+function lawFirmMarketplace(dir: string) {
   const env = { ...process.env, GIT_AUTHOR_NAME: "T", GIT_AUTHOR_EMAIL: "t@example.com", GIT_COMMITTER_NAME: "T", GIT_COMMITTER_EMAIL: "t@example.com", GIT_CONFIG_GLOBAL: "/dev/null" };
   const repo = (dir: string, files: Record<string, string>) => {
     for (const [path, content] of Object.entries(files)) {
@@ -63,19 +62,21 @@ function lawFirmMarketplace() {
       .filter((d) => d.isFile())
       .map((d) => [relative(root, join(d.parentPath, d.name)), readFileSync(join(d.parentPath, d.name), "utf8")]),
   );
-  const dir = mkdtempSync(join(tmpdir(), "dispand-axe-"));
   const plugin = repo(join(dir, "plugin"), files);
   return repo(join(dir, "market"), { ".claude-plugin/marketplace.json": JSON.stringify({ name: "axe-firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin } }] }) });
 }
 
 /** What the pages show, made once for the run, by the first test that needs it. */
-let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string }> | undefined;
+let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string; harnessName: string }> | undefined;
 function seed(page: Page) {
   made ??= (async () => {
     // A name of its own: a worker started after a failed test seeds again, on the same app.
     const name = `Axe scan ${Date.now()}`;
     await stem(page);
     const agent = await writer(page);
+    // A cloud harness of its own: the Writer's depends on which spec made it.
+    const harnessName = `${name} model`;
+    await rpc(page, "harnesses/create", { type: "cloud", name: harnessName, kind: "openai-compatible", baseUrl: "http://127.0.0.1:9/v1", model: "axe-model", systemPrompt: "" });
     const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
@@ -91,7 +92,7 @@ function seed(page: Page) {
     });
     const home = await rpc<{ id: string }>(page, "pages/home");
     await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
-    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name };
+    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName };
   })();
   return made;
 }
@@ -143,7 +144,8 @@ for (const scheme of ["light", "dark"] as const) {
     const overlays: {
       name: string;
       route: (ids: Awaited<ReturnType<typeof seed>>) => string;
-      open: (page: Page) => Promise<Locator>;
+      /** Opens it and returns it, once it shows what it loads. */
+      open: (page: Page, ids: Awaited<ReturnType<typeof seed>>) => Promise<Locator>;
       /** What shows the page itself has loaded: a heading by default. */
       ready?: (page: Page) => Locator;
       known?: string[];
@@ -159,8 +161,8 @@ for (const scheme of ["light", "dark"] as const) {
       {
         name: "a cloud harness's sheet",
         route: () => "/settings/harnesses",
-        open: async (page) => {
-          await page.getByRole("button", { name: /Writer's model/ }).click();
+        open: async (page, { harnessName }) => {
+          await page.getByRole("button", { name: new RegExp(harnessName) }).click();
           return dialog(page);
         },
       },
@@ -176,8 +178,9 @@ for (const scheme of ["light", "dark"] as const) {
       {
         name: "the Add widget sheet of Home",
         route: () => "/",
-        open: async (page) => {
+        open: async (page, { name }) => {
           await page.getByRole("button", { name: "Add widget" }).click();
+          await expect(dialog(page).getByRole("button", { name: `Workflow: ${name}` })).toBeVisible();
           return dialog(page);
         },
       },
@@ -226,6 +229,7 @@ for (const scheme of ["light", "dark"] as const) {
         open: async (page) => {
           await page.getByRole("button", { name: "Account menu" }).click();
           await page.getByRole("menuitem", { name: "Your profile" }).click();
+          await expect(dialog(page).getByRole("textbox")).toBeEnabled();
           return dialog(page);
         },
       },
@@ -233,14 +237,14 @@ for (const scheme of ["light", "dark"] as const) {
     for (const { name, route, open, ready, known } of overlays) {
       test(`${name} has no accessibility violation`, async ({ page }) => {
         const ids = await seed(page);
-        await accessible(page, route(ids), { ready: ready?.(page), known, open: async () => expect(await open(page)).toBeVisible() });
+        await accessible(page, route(ids), { ready: ready?.(page), known, open: async () => expect(await open(page, ids)).toBeVisible() });
       });
     }
 
     test("the plugin's install, set up and remove sheets have none", async ({ page }) => {
       test.setTimeout(120_000);
       await seed(page);
-      const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: lawFirmMarketplace() });
+      const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: lawFirmMarketplace(test.info().outputPath("market")) });
       try {
         await page.goto("/settings/plugins");
         await hydrated(page);
@@ -263,6 +267,7 @@ for (const scheme of ["light", "dark"] as const) {
         await expect(sheet.getByRole("button", { name: "Remove plugin" })).toBeVisible();
         await scanned(page);
         await sheet.getByRole("button", { name: "Remove plugin" }).click();
+        await expect(sheet).toBeHidden();
         await expect(page.getByRole("listitem", { name: "law-firm" })).toHaveCount(0);
       } finally {
         await rpc(page, "marketplaces/remove", { id: market.id });
