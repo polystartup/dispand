@@ -33,6 +33,7 @@ setup("the owner is created on a fresh app, or signed in, and kept for the proje
   // Only the cookies: what the page keeps of its own (the theme) is not the project's.
   const file = authFile(setup.info().project.name.replace(/^setup-/, ""));
   const state = await page.context().storageState();
-  mkdirSync(dirname(file), { recursive: true });
-  writeFileSync(file, JSON.stringify({ cookies: state.cookies, origins: [] }));
+  // Private whatever the umask, also when a rerun in the same process finds the directory removed.
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
+  writeFileSync(file, JSON.stringify({ cookies: state.cookies, origins: [] }), { mode: 0o600 });
 });
