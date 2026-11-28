@@ -8,6 +8,7 @@ import {
   type ThreadSuggestion,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
+import { JOB_SERVER_NAME } from "@dispand/runner-protocol";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -113,6 +114,24 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
   return message;
 }
 
+/** A session's own trace line of an `artifact_show` call: by its name in the cloud, through the Job's server in a CLI. */
+const SHOW_TRACES = new Set([ARTIFACT_TOOL, `mcp__${JOB_SERVER_NAME}__${ARTIFACT_TOOL}`]);
+
+/**
+ * An artifact's card says its call happened, so the call's trace line is left out: the nearest one
+ * before the card, or after it when the card was stored first. A call that made no card keeps its line.
+ */
+function withoutShownTraces(rows: Message[]): Message[] {
+  const shown = new Set<Message>();
+  const unclaimed = (m: Message) => m.role === "tool" && !m.result && SHOW_TRACES.has(m.text) && !shown.has(m);
+  rows.forEach((row, i) => {
+    if (!row.result || !("artifactId" in row.result)) return;
+    const trace = rows.slice(0, i).findLast(unclaimed) ?? rows.slice(i + 1).find(unclaimed);
+    if (trace) shown.add(trace);
+  });
+  return rows.filter((row) => !shown.has(row));
+}
+
 /**
  * The chat of a run as a thread: the chat step's messages and its questions (but those that
  * expired), in the order they came. A consult is a line, not a question.
@@ -121,7 +140,10 @@ export function threadMessages(run: RunSnapshot | null, chatStepId: string | und
   if (!run || !chatStepId) return [];
   return groupTraces(
     [
-      ...run.messages.filter((m) => m.stepRunId === chatStepId).map((m) => ({ at: new Date(m.createdAt).getTime(), message: kept(m, ofMessage) })),
+      ...withoutShownTraces(run.messages.filter((m) => m.stepRunId === chatStepId)).map((m) => ({
+        at: new Date(m.createdAt).getTime(),
+        message: kept(m, ofMessage),
+      })),
       // A consult asks nothing of the owner: it shows as a line, with nothing to answer.
       ...run.questions
         .filter((q) => q.stepRunId === chatStepId && q.status !== "expired")
