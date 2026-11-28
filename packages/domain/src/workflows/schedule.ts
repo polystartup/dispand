@@ -35,21 +35,35 @@ export function knownTimezone(timezone: string): boolean {
 /** Each field's last value as cron-parser read it (day-of-week's 7 is Sunday too), and the longest step croner takes. */
 const LAST = [59, 23, 31, 12, 7];
 const LONGEST_STEP = [60, 24, 31, 12, 7];
+/** Month and weekday names, numbered as cron-parser did: January 1, Sunday 0 (croner reads a range's last SUN as 7). */
+const NAMES = [
+  [],
+  [],
+  [],
+  ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"],
+  ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+];
 
 /**
- * `cron` written so croner reads it as cron-parser, which read schedules before it, did: a step
- * from one value runs to the field's end (`5/15` is `5-59/15`, and day-of-week ends at 7, Sunday),
- * and a step longer than its field keeps only its start (every 100 hours is midnight), which croner refuses.
+ * `cron` written so croner reads it as cron-parser, which read schedules before it, did: names
+ * as its numbers (`SUN-SUN` is Sunday alone), a step from one value runs to the field's end
+ * (`5/15` is `5-59/15`, and day-of-week ends at 7, Sunday), and a step longer than its field keeps
+ * only its start (every 100 hours is midnight), which croner refuses.
  */
 function asSaved(cron: string): string {
   return cron
     .trim()
     .split(/\s+/)
     .map((field, i) =>
-      field.replace(/([^,/]+)\/(\d+)/g, (_, from: string, step: string) => {
-        const range = from === "*" || from === "?" || from.includes("-") ? from : `${from}-${LAST[i]}`;
-        return `${range}/${Math.min(Number(step), LONGEST_STEP[i]!)}`;
-      }),
+      field
+        .replace(/[a-z]{3}/gi, (name) => {
+          const n = NAMES[i]!.indexOf(name.toLowerCase());
+          return n < 0 ? name : String(i === 3 ? n + 1 : n);
+        })
+        .replace(/([^,/]+)\/(\d+)/g, (_, from: string, step: string) => {
+          const range = from === "*" || from === "?" || from.includes("-") ? from : `${from}-${LAST[i]}`;
+          return `${range}/${Math.min(Number(step), LONGEST_STEP[i]!)}`;
+        }),
     )
     .join(" ");
 }
@@ -57,17 +71,21 @@ function asSaved(cron: string): string {
 /**
  * How croner reads `cron` in `timezone`, in that zone's wall clock. A time a DST change repeats
  * fires once, on its first pass. A time a change skips fires once at the end of the gap (a daily
- * 02:30 at 03:00 in Paris). Unless the cron gives its minute or hour as `*` or a step (every 15
+ * 02:30 at 03:00 in Paris), that day: a gap that runs to midnight (Nuuk's, from 23:00) skips it,
+ * as cron-parser did. Unless the cron gives its minute or hour as `*` or a step (every 15
  * minutes, an hourly `15 * * * *`): that is an interval, in real time, firing on both passes of a
  * repeated hour and never in a skipped one.
  */
 function read(cron: string, timezone: string): Cron {
-  return new Cron(asSaved(cron), { timezone, mode: "5-part", fixedTimeRule: "no-wildcard" });
+  // croner keeps a formatter for each spelling of a zone (`europe/paris`), for good: give it the canonical one.
+  const zone = new Intl.DateTimeFormat("en-US", { timeZone: timezone }).resolvedOptions().timeZone;
+  return new Cron(asSaved(cron), { timezone: zone, mode: "5-part", fixedTimeRule: "no-wildcard" });
 }
 
 /** Why `cron` in `timezone` can't be a schedule, for the owner, or null when it can. */
 export function cronProblem(cron: string, timezone: string): Message | null {
-  if (cron.trim().split(/\s+/).length !== 5) return say("workflows.schedule.fields");
+  // croner reads a colon as a one-time date ("Jan 1 2030 00:00"), never a cron.
+  if (cron.trim().split(/\s+/).length !== 5 || cron.includes(":")) return say("workflows.schedule.fields");
   // Jenkins' `H` (a minute picked per job) isn't cron: croner refuses it, said plainly here.
   if (/h/i.test(cron)) return say("workflows.schedule.noH");
   if (!knownTimezone(timezone)) return say("workflows.schedule.unknownTimezone");

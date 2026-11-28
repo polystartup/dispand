@@ -42,11 +42,14 @@ test("cronProblem refuses 6 fields and unknown timezones", () => {
   expect(cronProblem("0 9 * * 1-5", PARIS)).toBeNull();
   expect(cronProblem("0 0 9 * * *", PARIS)).toEqual({ key: "workflows.schedule.fields" });
   expect(cronProblem("@daily", PARIS)).toEqual({ key: "workflows.schedule.fields" });
+  // Five words croner would read as one date.
+  expect(cronProblem("Jan 1 2030 00:00:00 +0000", PARIS)).toEqual({ key: "workflows.schedule.fields" });
   expect(cronProblem("H 9 * * *", PARIS)).toEqual({ key: "workflows.schedule.noH" });
   expect(cronProblem("0 9 * * *", "Mars/Olympus")).toEqual({ key: "workflows.schedule.unknownTimezone" });
   expect(cronProblem("0 9 * * *", "")).toEqual({ key: "workflows.schedule.unknownTimezone" });
   expect(cronProblem("61 9 * * *", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
   expect(cronProblem("0 0 30 2 *", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
+  expect(cronProblem("0 9 * * SAT-SUN", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
 });
 
 test("schedules read in UTC", () => {
@@ -59,6 +62,11 @@ test("schedules read in UTC", () => {
     expect(latestFireBetween("0 9 * * *", zone, new Date("2027-10-29T00:00:00Z"), new Date("2027-10-31T12:00:00Z"))).toEqual(new Date("2027-10-31T09:00:00Z"));
     expect(isoInZone(new Date("2026-11-05T09:00:00Z"), zone)).toBe("2026-11-05T09:00:00+00:00");
   }
+});
+
+test("a timezone reads the same however it is spelled", () => {
+  const after = new Date("2026-11-04T08:30:00Z");
+  expect(nextFireAfter("0 9 * * *", "europe/PARIS", after)).toEqual(nextFireAfter("0 9 * * *", PARIS, after));
 });
 
 test("nextFireAfter in Europe/Paris", () => {
@@ -179,6 +187,11 @@ test("reads the crons it accepts as before: steps, L, #, ? and names", () => {
     ["0 9 ? * MON", ["2026-11-16T09:00Z", "2026-11-23T09:00Z", "2026-11-30T09:00Z", "2026-12-07T09:00Z"]],
     ["0 9 1 jan,JUL *", ["2027-01-01T09:00Z", "2027-07-01T09:00Z", "2028-01-01T09:00Z", "2028-07-01T09:00Z"]],
     ["0 9 * * 0-7", ["2026-11-16T09:00Z", "2026-11-17T09:00Z", "2026-11-18T09:00Z", "2026-11-19T09:00Z"]],
+    // SUN is 0, at either end of a range.
+    ["0 9 * * SUN-SUN", ["2026-11-22T09:00Z", "2026-11-29T09:00Z", "2026-12-06T09:00Z", "2026-12-13T09:00Z"]],
+    ["0 9 * * SUN-SUN/2", ["2026-11-22T09:00Z", "2026-11-29T09:00Z", "2026-12-06T09:00Z", "2026-12-13T09:00Z"]],
+    ["0 9 * * SUN-1", ["2026-11-16T09:00Z", "2026-11-22T09:00Z", "2026-11-23T09:00Z", "2026-11-29T09:00Z"]],
+    ["0 9 1 JAN-DEC/5 *", ["2027-01-01T09:00Z", "2027-06-01T09:00Z", "2027-11-01T09:00Z", "2028-01-01T09:00Z"]],
     // Day of month or day of week, when both are given.
     ["0 9 13 * 5", ["2026-11-20T09:00Z", "2026-11-27T09:00Z", "2026-12-04T09:00Z", "2026-12-11T09:00Z"]],
     ["00 09 * * SUN", ["2026-11-22T09:00Z", "2026-11-29T09:00Z", "2026-12-06T09:00Z", "2026-12-13T09:00Z"]],

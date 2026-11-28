@@ -171,7 +171,9 @@ test("latestFireBetween is the last fire in (since, until], or null when none fa
   );
 });
 
-// schedule.ts "A time a DST change repeats fires once, on its first pass. A time a change skips fires once at the end of the gap"; "Every weekday at 09:00", in the timezone named; schedule.test.ts "fires once per day across DST".
+// schedule.ts "A time a DST change repeats fires once, on its first pass. A time a change skips fires once at the end of the gap",
+// "that day": not for a gap that runs to midnight (Nuuk's, none in CHANGES); "Every weekday at 09:00", in the timezone named;
+// schedule.test.ts "fires once per day across DST".
 test("a daily schedule fires once on each day at its time, across DST changes", () => {
   fc.assert(
     fc.property(time, zoned, (at, { zone, date: from }) => {
