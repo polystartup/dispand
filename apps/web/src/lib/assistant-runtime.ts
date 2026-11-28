@@ -8,6 +8,7 @@ import {
   type ThreadSuggestion,
   useExternalStoreRuntime,
 } from "@assistant-ui/react";
+import { JOB_SERVER_NAME } from "@dispand/runner-protocol";
 import type { RunSnapshot } from "./run-state.ts";
 
 // The one place Dispand's runs meet assistant-ui. Dispand keeps its own messages, questions and
@@ -113,6 +114,34 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
   return message;
 }
 
+/** A session's own trace line of an `artifact_show` call: by its name in the cloud, through the Job's server in a CLI. */
+const SHOW_TRACES = new Set([ARTIFACT_TOOL, `mcp__${JOB_SERVER_NAME}__${ARTIFACT_TOOL}`]);
+
+/**
+ * An artifact's card says its call happened, so one trace line of the call is left out for each card:
+ * the latest one before it, or the next one when the card was stored first. A call that made no card
+ * keeps a line. One pass: a model can make a long run of these calls.
+ */
+function withoutShownTraces(rows: Message[]): Message[] {
+  const shown = new Set<Message>();
+  const traces: Message[] = [];
+  let cards = 0;
+  for (const row of rows) {
+    if (row.role !== "tool") continue;
+    if (row.result && "artifactId" in row.result) {
+      const trace = traces.pop();
+      if (trace) shown.add(trace);
+      else cards++;
+    } else if (!row.result && SHOW_TRACES.has(row.text)) {
+      if (cards > 0) {
+        cards--;
+        shown.add(row);
+      } else traces.push(row);
+    }
+  }
+  return rows.filter((row) => !shown.has(row));
+}
+
 /**
  * The chat of a run as a thread: the chat step's messages and its questions (but those that
  * expired), in the order they came. A consult is a line, not a question.
@@ -121,7 +150,10 @@ export function threadMessages(run: RunSnapshot | null, chatStepId: string | und
   if (!run || !chatStepId) return [];
   return groupTraces(
     [
-      ...run.messages.filter((m) => m.stepRunId === chatStepId).map((m) => ({ at: new Date(m.createdAt).getTime(), message: kept(m, ofMessage) })),
+      ...withoutShownTraces(run.messages.filter((m) => m.stepRunId === chatStepId)).map((m) => ({
+        at: new Date(m.createdAt).getTime(),
+        message: kept(m, ofMessage),
+      })),
       // A consult asks nothing of the owner: it shows as a line, with nothing to answer.
       ...run.questions
         .filter((q) => q.stepRunId === chatStepId && q.status !== "expired")

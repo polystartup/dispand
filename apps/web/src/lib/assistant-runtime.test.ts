@@ -145,6 +145,24 @@ test("an artifact's reference becomes its own finished tool call, never a trace,
   expect(thread[1]!.content).toEqual([{ type: "tool-call", toolCallId: "art_1", toolName: ARTIFACT_TOOL, args: {}, result: ref }]);
 });
 
+test("an artifact call's own trace line is left out of the thread, in the cloud and in a CLI; a call that showed nothing keeps its line", () => {
+  const card = (id: string, s: number) => ({
+    ...message(id, "tool", "artifact_show", s),
+    result: { kind: "artifact" as const, artifactId: `art_${id}`, title: "Chart", format: "html" as const, size: 42 },
+  });
+  const ids = (...messages: unknown[]) => threadMessages(snapshot(messages, []), "s_chat").map((item) => item.id);
+  expect(ids(message("t1", "tool", "artifact_show", 1), card("a1", 2))).toEqual(["a1"]);
+  expect(ids(message("t1", "tool", "mcp__job__artifact_show", 1), card("a1", 2))).toEqual(["a1"]);
+  // The card stored before the runner's event of the same call arrived.
+  expect(ids(card("a1", 1), message("t1", "tool", "mcp__job__artifact_show", 2))).toEqual(["a1"]);
+  // A refused call, then one that worked; and another tool's line stays whatever it is next to.
+  expect(ids(message("t1", "tool", "artifact_show", 1), message("t2", "tool", "artifact_show", 2), card("a1", 3))).toEqual(["t1", "a1"]);
+  expect(ids(message("t1", "tool", "artifact_show", 1))).toEqual(["t1"]);
+  expect(ids(message("t1", "tool", "Read", 1), card("a1", 2), message("t2", "tool", "mcp__other__artifact_show", 3))).toEqual(["t1", "a1", "t2"]);
+  // Two calls of one turn, their lines first.
+  expect(ids(message("t1", "tool", "artifact_show", 1), message("t2", "tool", "artifact_show", 2), card("a1", 3), card("a2", 4))).toEqual(["a1", "a2"]);
+});
+
 test("provider call ids reused in later turns retain separate record identities", () => {
   const record = { kind: "record", tableId: "table_1", rowId: "row_1", fields: [] };
   const thread = threadMessages(
