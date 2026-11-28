@@ -11,7 +11,7 @@
     "codex:types": "rm -rf src/codex/protocol && codex app-server generate-ts --experimental --out src/codex/protocol"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.326",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.330",
     "@dispand/runner-protocol": "workspace:*",
     "@modelcontextprotocol/client": "^2.4.0",
     "@modelcontextprotocol/sdk": "^1.32.2",
@@ -23,11 +23,11 @@
   "devDependencies": {
     "@dispand/domain": "workspace:*",
     "@modelcontextprotocol/server": "^2.4.0",
-    "@orpc/server": "^1.16.2",
+    "@orpc/server": "^1.16.4",
     "@types/node": "^26.6.6",
     "@types/ws": "^8.18.2",
-    "@vitest/coverage-v8": "^5.1.0",
+    "@vitest/coverage-v8": "^5.1.1",
     "esbuild": "^0.28.2",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.1"
   }
 }
