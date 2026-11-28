@@ -225,7 +225,7 @@ function Marketplaces({ link }: { link?: { source: string; kind: Kind } }) {
           aria-label={t("markets.kind")}
           value={kind}
           onChange={(e) => setKind(e.target.value as Kind)}
-          className="h-9 rounded-lg border border-input bg-surface px-2 text-[14px]"
+          className="min-h-11 rounded-lg border border-input bg-surface px-2 text-[14px]"
         >
           <option value="git">{t("markets.git")}</option>
           <option value="well-known">{t("markets.skillSite")}</option>
@@ -288,7 +288,7 @@ function FromLink({ id, host }: { id: string; host: string | undefined }) {
           <select
             value={current.workspaceId}
             onChange={(e) => void navigate({ search: (prev) => ({ ...prev, w: e.target.value }) })}
-            className="h-9 rounded-lg border border-input bg-surface px-2 text-[14px] text-fg"
+            className="min-h-11 rounded-lg border border-input bg-surface px-2 text-[14px] text-fg"
           >
             {workspaces.map((x) => (
               <option key={x.workspaceId} value={x.workspaceId}>

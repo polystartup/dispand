@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, test } from "vitest";
+import { afterEach, expect, test, vi } from "vitest";
+import "../../test/jsdom-shims.ts";
 import type { ProposalView } from "./ProposalItems.tsx";
 import { RecordedProposalScope } from "./RecordedProposalScope.tsx";
 
@@ -21,9 +22,11 @@ test("recorded failures stay visible and only count settled refusals", async () 
   await user.tab();
   await user.keyboard("{Enter}");
   expect(screen.getByRole("list", { name: "What is proposed" }).children).toHaveLength(4);
+  const reveal = vi.spyOn(trigger, "scrollIntoView");
   await user.keyboard("{Escape}");
   expect(trigger.getAttribute("aria-expanded")).toBe("false");
   expect(document.activeElement).toBe(trigger);
+  expect(reveal).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
 });
 
 test("a previously visible scope stays open until closed and later updates preserve that choice", async () => {

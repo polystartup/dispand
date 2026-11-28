@@ -268,7 +268,7 @@ export function AgentEditor({
                       <button
                         type="button"
                         aria-label={t("editor.removeTool", { name: tool.name })}
-                        className="rounded p-0.5 text-muted hover:bg-hover"
+                        className="-my-2 -mr-2 grid size-11 shrink-0 place-items-center rounded-lg text-muted hover:bg-hover"
                         onClick={() => setToolIds(toolIds.filter((id) => id !== tool.toolId))}
                       >
                         <X className="size-3.5" />

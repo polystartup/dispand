@@ -167,8 +167,10 @@ test("a proposal shows every item whole and edits revision feedback beneath its 
   await user.click(request);
   const field = within(card).getByRole("textbox", { name: "What should change?" });
   expect(document.activeElement).toBe(field);
+  const reveal = vi.spyOn(request, "scrollIntoView");
   await user.keyboard("{Escape}");
   expect(document.activeElement).toBe(request);
+  expect(reveal).toHaveBeenCalledExactlyOnceWith({ block: "nearest" });
   expect(fake.questions.answer).not.toHaveBeenCalled();
   await user.click(request);
   const send = within(card).getByRole("button", { name: "Send feedback" });

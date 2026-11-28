@@ -95,7 +95,7 @@ export function HarnessSheet({ harness, runners, onClose, onSaved }: Props) {
                   key={value}
                   type="button"
                   onClick={() => setType(value)}
-                  className="rounded-xl border border-line px-4 py-3 text-left transition hover:bg-hover"
+                  className="rounded-xl border border-line px-4 py-3 text-left transition hover:bg-soft"
                 >
                   <span className="block text-[15px] font-medium">{t(`sheet.type.${value}.label`)}</span>
                   <span className="block text-[13px] text-muted">{t(`sheet.type.${value}.text`)}</span>

@@ -66,7 +66,7 @@ function CodeHeader({ language, code }: CodeHeaderProps) {
         type="button"
         onClick={() => void copy()}
         aria-label={t("copyCode")}
-        className="flex shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
+        className="-my-2 flex min-h-11 shrink-0 items-center gap-1.5 rounded px-1 hover:text-fg focus-visible:outline-2 focus-visible:outline-accent"
       >
         {copied === code ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
         <span role="status">{error ? t("copyFailed") : copied === code ? t("copied") : t("copyCode")}</span>

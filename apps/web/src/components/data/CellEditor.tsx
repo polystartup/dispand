@@ -21,7 +21,7 @@ type Props = {
   initialText?: string;
 };
 
-const inputClass = "w-full rounded-md border border-accent bg-surface px-2 py-1 text-[14px] outline-none";
+const inputClass = "min-h-11 w-full rounded-md border border-accent bg-surface px-2 py-1 text-[14px] outline-none";
 
 /**
  * Edits one cell. Text is parsed with the field's rules (`parseCellText`): a value that doesn't
@@ -33,13 +33,15 @@ export function CellEditor({ field, value, onCommit, onCancel, inline = true, in
   if (field.type === "reference") return <ReferenceEditor field={field} value={value} onCommit={onCommit} onCancel={onCancel} inline={inline} />;
   if (field.type === "checkbox") {
     return (
-      <input
-        type="checkbox"
-        aria-label={field.name}
-        checked={value === true}
-        onChange={(e) => onCommit(e.target.checked)}
-        className="size-4 accent-[var(--accent)]"
-      />
+      <label className="grid size-11 place-items-center">
+        <input
+          type="checkbox"
+          aria-label={field.name}
+          checked={value === true}
+          onChange={(e) => onCommit(e.target.checked)}
+          className="size-4 accent-[var(--accent)]"
+        />
+      </label>
     );
   }
   if (field.type === "attachment") return null;
@@ -182,7 +184,7 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
             }}
             onClick={() => onCommit(c.id)}
             onKeyDown={(e) => e.key === "Enter" && onCommit(c.id)}
-            className="flex cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[14px] outline-none hover:bg-hover focus:bg-hover"
+            className="flex min-h-11 cursor-pointer items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-[14px] outline-none hover:bg-hover focus:bg-hover"
           >
             {c.label}
             {c.id === value && <Check size={14} aria-hidden />}
@@ -190,7 +192,11 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
         ))}
       </ul>
       {field.choices.length === 0 && <p className="px-2 py-1.5 text-[13px] text-muted">{t(field.type === "reference" ? "cell.noRows" : "cell.noChoices")}</p>}
-      <button type="button" onClick={() => onCommit(null)} className="mt-1 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover">
+      <button
+        type="button"
+        onClick={() => onCommit(null)}
+        className="mt-1 min-h-11 w-full rounded-lg px-2 py-1.5 text-left text-[13px] text-muted hover:bg-hover"
+      >
         {t("cell.clear")}
       </button>
     </div>

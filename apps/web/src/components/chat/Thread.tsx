@@ -251,6 +251,8 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
   function cancel() {
     setFeedback(null);
     trigger.current?.focus({ preventScroll: true });
+    // Back into view if the person scrolled away from it, moving no further than that takes.
+    trigger.current?.scrollIntoView({ block: "nearest" });
   }
   return (
     <>
@@ -309,7 +311,8 @@ function ProposalDecisions({ busy, onAnswer }: { busy: boolean; onAnswer: (value
             <Button type="submit" disabled={busy || !message || tooLong}>
               {t("proposal.sendFeedback")}
             </Button>
-            <Button type="button" variant="ghost" disabled={busy} onClick={cancel}>
+            {/* On the editor's `soft` panel, a ghost button's own `soft` hover would not show. */}
+            <Button type="button" variant="ghost" className="hover:bg-surface" disabled={busy} onClick={cancel}>
               {t("common:actions.cancel")}
             </Button>
           </div>
@@ -534,7 +537,7 @@ function ChatThreadView({
                           {() => (
                             <SuggestionPrimitive.Trigger
                               send={false}
-                              className="min-h-11 rounded-lg border border-input px-3 py-2 text-sm text-fg hover:bg-hover focus-visible:outline-2 focus-visible:outline-accent"
+                              className="min-h-11 rounded-lg border border-input px-3 py-2 text-sm text-fg hover:bg-soft focus-visible:outline-2 focus-visible:outline-accent"
                             >
                               <SuggestionPrimitive.Title />
                             </SuggestionPrimitive.Trigger>

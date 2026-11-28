@@ -23,8 +23,7 @@ export function choicesFromLines(text: string) {
   return labels.map((label) => ({ id: `c_${crypto.randomUUID().slice(0, 12)}`, label }));
 }
 
-export const selectClass =
-  "min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-[14px] outline-none focus-visible:ring-[3px] focus-visible:ring-ring";
+export const selectClass = "min-h-11 w-full rounded-md border border-input bg-transparent px-2 text-[14px]";
 
 /** The "+" header of the grid: name, type, and choices for a single select. */
 export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCreated: () => void }) {
@@ -69,7 +68,7 @@ export function NewFieldPopover({ tableId, onCreated }: { tableId: string; onCre
       }}
     >
       <PopoverTrigger asChild>
-        <button type="button" aria-label={t("newField.add")} className="grid size-8 place-items-center rounded-lg text-muted hover:bg-hover">
+        <button type="button" aria-label={t("newField.add")} className="grid size-11 place-items-center rounded-lg text-muted hover:bg-hover">
           <Plus size={16} aria-hidden />
         </button>
       </PopoverTrigger>

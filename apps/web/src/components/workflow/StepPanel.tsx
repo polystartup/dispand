@@ -108,7 +108,7 @@ export function StepPanel({
                 aria-checked={trigger.type === kind}
                 onClick={() => setTriggerType(kind)}
                 className={cn(
-                  "rounded-lg py-1.5 text-[13px] font-medium transition",
+                  "min-h-11 rounded-lg py-1.5 text-[13px] font-medium transition",
                   trigger.type === kind ? "bg-surface shadow-card" : "text-muted hover:text-fg",
                 )}
               >

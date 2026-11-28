@@ -37,7 +37,7 @@ function EditAgent() {
       {agent.data && (
         <>
           <p className="mb-4 text-[14px]">
-            <Link to="/inbox" search={{ actor: agent.data.id }} className="text-accent hover:underline">
+            <Link to="/inbox" search={{ actor: agent.data.id }} className="inline-flex min-h-11 items-center text-accent hover:underline">
               {t("page.inbox")}
             </Link>
           </p>

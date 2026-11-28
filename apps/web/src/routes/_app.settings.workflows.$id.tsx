@@ -143,7 +143,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
 
   return (
     <>
-      <Link to="/settings/workflows" className="mb-3 inline-flex items-center gap-1 text-[13px] text-muted transition hover:text-fg">
+      <Link to="/settings/workflows" className="mb-1 inline-flex min-h-11 items-center gap-1 text-[13px] text-muted transition hover:text-fg">
         <ChevronLeft size={15} aria-hidden /> {t("editor.back")}
       </Link>
       {/* Not role="status" banners: the save state below is the page's one status. */}
@@ -183,7 +183,7 @@ function Editor({ workflow }: { workflow: Workflow }) {
           value={name}
           maxLength={100}
           onChange={(e) => setName(e.target.value)}
-          className="min-w-0 flex-1 rounded-lg bg-transparent text-[28px] font-semibold leading-tight tracking-tight outline-none placeholder:text-faint focus-visible:outline-none"
+          className="min-h-11 min-w-0 flex-1 rounded-lg bg-transparent text-[28px] font-semibold leading-tight tracking-tight outline-none placeholder:text-faint focus-visible:outline-none"
           placeholder={t("editor.namePlaceholder")}
         />
         <span role="status" className={state === "error" ? "text-[13px] text-danger" : "text-[13px] text-muted"}>

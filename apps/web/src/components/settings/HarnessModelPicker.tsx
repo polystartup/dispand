@@ -101,7 +101,7 @@ function HarnessModels({
   return (
     <fieldset disabled={disabled} className="space-y-2">
       <legend className="mb-2 text-sm text-muted">{harness.name}</legend>
-      <div className="overflow-hidden rounded-2xl bg-hover">
+      <div data-focus-inset className="overflow-hidden rounded-2xl bg-hover">
         {shown.map((m) => (
           <button
             key={m.id}
