@@ -141,6 +141,33 @@ test("an entered client id and secret, where the server supports neither metadat
   expect(mcp.requests.some((h) => JSON.stringify(h).includes("given-s3cret"))).toBe(false);
 });
 
+test("a member connects with the entered client but can't change or remove it, which would end the connection; a manager can", async () => {
+  const { mcp } = await servers({ client: { id: "given-id", secret: "given-s3cret" } });
+  const ctx = await context();
+  const tool = await oauthTool(ctx, mcp.url);
+  await connect(ctx, tool.id, { clientId: "given-id", clientSecret: "given-s3cret" });
+  const before = await row(ctx, tool.id);
+  const pat = await personContext(ctx, "pat", "member");
+  for (const client of [{ clientId: "other-id" }, null])
+    await expect(call(router.tools.authorize, { id: tool.id, client }, { context: pat })).rejects.toMatchObject({
+      code: "FORBIDDEN",
+      data: { key: "workspace.managerOnly" },
+    });
+  // Not written at all: each change seals the state anew.
+  const after = await row(ctx, tool.id);
+  expect([after.oauthSealed, after.oauthClientId, after.oauthStatus]).toEqual([before.oauthSealed, "given-id", "connected"]);
+
+  // Connect stays a member's, with the entered client, and keeps the tokens until its callback.
+  const { url } = await call(router.tools.authorize, { id: tool.id }, { context: pat });
+  expect(new URL(url).searchParams.get("client_id")).toBe("given-id");
+  expect(tokensOf(ctx, await row(ctx, tool.id))).toEqual(tokensOf(ctx, before));
+
+  const sam = await personContext(ctx, "sam", "manager");
+  await call(router.tools.authorize, { id: tool.id, client: { clientId: "given-id", clientSecret: "given-s3cret" } }, { context: sam });
+  const state = openState(ctx.secrets, tool.id, (await row(ctx, tool.id)).oauthSealed);
+  expect([state.entered?.client_id, state.current, state.issuers]).toEqual(["given-id", undefined, {}]);
+});
+
 test("dynamic registration, when the server offers it", async () => {
   const { as, mcp } = await servers({ registration: true });
   const ctx = await context();
