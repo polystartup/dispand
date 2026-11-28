@@ -2,9 +2,10 @@ import type { RememberedPermissions, RememberOffer } from "../agents/remember.ts
 import type { Answer, QuestionPayload } from "@dispand/runner-protocol";
 import type { CloudEvent, RecordToolResult, ToolMessageResult } from "../messages/record-result.ts";
 import type { ChatItem } from "../cloud/model-client.ts";
-import { sql } from "drizzle-orm";
+import { getTableName, sql } from "drizzle-orm";
 import {
   type AnyPgColumn,
+  type ExtraConfigColumn,
   bigint,
   boolean,
   check,
@@ -21,25 +22,33 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import type { Harness, StartParams } from "../engine/harness.ts";
-import type { Cell, Choice, FieldType } from "../data/fields.ts";
+import { CLOUD_KINDS } from "../harnesses/model.ts";
+import { type Cell, type Choice, FIELD_TYPES } from "../data/fields.ts";
 import type { MemoryTarget } from "../memory/model.ts";
 import type { Bundle, TableScope } from "../platform/bundles.ts";
-import type { RoutingMode } from "../agents/consults.ts";
 import type { TriggerConfig } from "../triggers/model.ts";
 import type { WidgetConfig } from "../pages/config.ts";
 import type { WidgetLayout } from "../pages/layout.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
-import type { MemoryAuthor, MemoryType } from "../memory/model.ts";
-import type { CloudKind } from "../harnesses/cloud.ts";
-import type { MarketplaceEntry, MarketplaceKind } from "../plugins/marketplace.ts";
+import { type MemoryAuthor, MEMORY_TYPES } from "../memory/model.ts";
+import type { MarketplaceEntry } from "../plugins/marketplace.ts";
 import type { PluginDefinitions, PrimitiveDefinition } from "../plugins/definitions.ts";
 import type { NotImported, PluginComponents } from "../plugins/read-plugin.ts";
-import type { OAuthStatus, ToolAction, ToolAuth, ToolTransport } from "../tools/mcp.ts";
-import type { AuditAction, AuditActor, AuditDetails, AuditResource, AuditResult } from "../audit/model.ts";
+import type { ToolAction } from "../tools/mcp.ts";
+import { AUDIT_ACTIONS, AUDIT_RESOURCES, AUDIT_RESULTS, type AuditActor, type AuditDetails } from "../audit/model.ts";
 import type { AgentSnapshot, PendingAction } from "./jsonb.ts";
 
 /** Their schemas are in `jsonb.ts`. */
 export type { AgentSnapshot, PendingAction };
+
+/**
+ * A text column's check: one of `values`, the column's `enum` list (which also types it), or a
+ * `legacy` value that rows written before may still hold. Migration 0137 added them `NOT VALID`.
+ */
+function oneOf(column: ExtraConfigColumn, values: readonly string[], legacy: readonly string[] = []) {
+  const list = [...values, ...legacy].map((v) => `'${v}'`).join(", ");
+  return check(`${getTableName(column.table)}_${column.name}_check`, sql`${column} in (${sql.raw(list)})`);
+}
 
 // Better Auth tables (email + password, one owner).
 export const user = pgTable(
@@ -84,6 +93,7 @@ export const organizations = pgTable(
   ],
 );
 
+const ORGANIZATION_ROLES = ["owner", "member"] as const;
 export const organizationMembers = pgTable(
   "organization_members",
   {
@@ -93,15 +103,15 @@ export const organizationMembers = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    role: text("role").$type<"owner" | "member">().notNull(),
+    role: text("role", { enum: ORGANIZATION_ROLES }).notNull(),
   },
   (t) => [
     primaryKey({ columns: [t.organizationId, t.userId] }),
-    check("organization_members_role_check", sql`${t.role} in ('owner', 'member')`),
     // One owner per organization: ownership moves only by a transfer (demote, then promote, in one transaction).
     uniqueIndex("organization_members_one_owner_idx")
       .on(t.organizationId)
       .where(sql`${t.role} = 'owner'`),
+    oneOf(t.role, ORGANIZATION_ROLES),
   ],
 );
 
@@ -114,6 +124,7 @@ export const workspaces = pgTable("workspaces", {
     .references(() => organizations.id, { onDelete: "cascade" }),
 });
 
+const WORKSPACE_ROLES = ["manager", "member"] as const;
 export const workspaceMembers = pgTable(
   "workspace_members",
   {
@@ -123,9 +134,9 @@ export const workspaceMembers = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    role: text("role").$type<"manager" | "member">().notNull(),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
   },
-  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), check("workspace_members_role_check", sql`${t.role} in ('manager', 'member')`)],
+  (t) => [primaryKey({ columns: [t.workspaceId, t.userId] }), oneOf(t.role, WORKSPACE_ROLES)],
 );
 
 export const workspaceInvitations = pgTable(
@@ -139,11 +150,11 @@ export const workspaceInvitations = pgTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
-    role: text("role").$type<"manager" | "member">().notNull(),
+    role: text("role", { enum: WORKSPACE_ROLES }).notNull(),
     tokenHash: text("token_hash").notNull().unique(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
-  (t) => [unique().on(t.workspaceId, t.email), check("workspace_invitations_role_check", sql`${t.role} in ('manager', 'member')`)],
+  (t) => [unique().on(t.workspaceId, t.email), oneOf(t.role, WORKSPACE_ROLES)],
 );
 
 export const session = pgTable("session", {
@@ -227,6 +238,7 @@ export const runnerPairings = pgTable("runner_pairings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+const SUBSCRIPTION_HARNESSES = ["claude-code", "codex"] as const;
 // A person's own CLI subscription on a runner (`runners/subscriptions.ts`): who enrolled it, where,
 // and the digest of the provider identity the runner signed in as. One per harness per runner.
 // Deleted when the binding ends; every reader checks the person's access and the runner again.
@@ -243,13 +255,13 @@ export const subscriptionEnrollments = pgTable(
     userId: text("user_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    harness: text("harness").$type<"claude-code" | "codex">().notNull(),
+    harness: text("harness", { enum: SUBSCRIPTION_HARNESSES }).notNull(),
     identity: text("identity").notNull(),
     // The runner's last report: the login can no longer renew, its subscriber must sign in again there.
     signInNeeded: boolean("sign_in_needed").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.runnerId, t.harness)],
+  (t) => [unique().on(t.runnerId, t.harness), oneOf(t.harness, SUBSCRIPTION_HARNESSES)],
 );
 
 // A personal action's grant (`runners/grants.ts`): the step it runs, on whose enrollment, for whom,
@@ -295,6 +307,10 @@ export const subscriptionChallenges = pgTable("subscription_challenges", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+const HARNESS_TYPES = ["cli", "cloud"] as const;
+const HARNESS_KINDS = ["claude-code", "codex", ...CLOUD_KINDS] as const;
+const PERMISSION_MODES = ["default", "acceptEdits", "plan", "bypassPermissions"] as const;
+const EFFORTS = ["low", "medium", "high"] as const;
 // Harnesses: a CLI on a runner (`cli`), or a provider's API with a key (`cloud`).
 export const harnesses = pgTable(
   "harnesses",
@@ -305,27 +321,37 @@ export const harnesses = pgTable(
       .references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
-    type: text("type").$type<"cli" | "cloud">().notNull().default("cli"),
+    type: text("type", { enum: HARNESS_TYPES }).notNull().default("cli"),
     // CLI only.
     runnerId: text("runner_id").references(() => runners.id),
-    kind: text("kind").$type<"claude-code" | "codex" | CloudKind>().notNull(),
+    kind: text("kind", { enum: HARNESS_KINDS }).notNull(),
     // CLI only.
-    permissionMode: text("permission_mode").$type<"default" | "acceptEdits" | "plan" | "bypassPermissions">(),
+    permissionMode: text("permission_mode", { enum: PERMISSION_MODES }),
     model: text("model"),
     // Cloud only. The API key is sealed (`secrets.ts`, AAD `apiKeyAad(id)`) and never leaves the server.
     baseUrl: text("base_url"),
     apiKeySealed: text("api_key_sealed"),
     systemPrompt: text("system_prompt"),
     maxTokens: integer("max_tokens"),
-    effort: text("effort").$type<"low" | "medium" | "high">(),
+    effort: text("effort", { enum: EFFORTS }),
     temperature: doublePrecision("temperature"),
     // How many of its sessions may work on a turn at once (`engine/slots.ts`); the rest queue.
     maxWorking: integer("max_working").notNull().default(5),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`)],
+  (t) => [
+    check("harnesses_max_working_range", sql`${t.maxWorking} between 1 and 100`),
+    oneOf(t.type, HARNESS_TYPES),
+    oneOf(t.kind, HARNESS_KINDS),
+    oneOf(t.permissionMode, PERMISSION_MODES),
+    oneOf(t.effort, EFFORTS),
+  ],
 );
 
+/** Who an agent may ask: nobody, everyone the rules allow, or those picked. Reused for people (`agents/consults.ts`). */
+export const ROUTING_MODES = ["disabled", "auto", "whitelist"] as const;
+export type RoutingMode = (typeof ROUTING_MODES)[number];
+const BUILT_IN_AGENTS = ["assistant"] as const;
 export const agents = pgTable(
   "agents",
   {
@@ -352,9 +378,9 @@ export const agents = pgTable(
     // Where its Jobs may write memory (`memory/model.ts`); empty, they learn nothing.
     selfLearning: jsonb("self_learning").$type<MemoryTarget[]>().notNull().default([]),
     // Which agents its Jobs may consult (`agents/consults.ts`): none, every same-side agent of the workspace, or those `agent_consults` lists.
-    consultMode: text("consult_mode").$type<RoutingMode>().notNull().default("disabled"),
+    consultMode: text("consult_mode", { enum: ROUTING_MODES }).notNull().default("disabled"),
     // Which people its Jobs may ask outside a chat (`agents/escalations.ts`): none, every member with a profile, or those `agent_escalations` lists.
-    escalateMode: text("escalate_mode").$type<RoutingMode>().notNull().default("disabled"),
+    escalateMode: text("escalate_mode", { enum: ROUTING_MODES }).notNull().default("disabled"),
     // Its `ask` tool says to ask an agent before a person: read only while neither mode is disabled.
     preferAgents: boolean("prefer_agents").notNull().default(false),
     cliRules: jsonb("cli_rules").$type<{ cli: "claude-code" | "codex"; rule: string; decision: "allow" | "deny" }[]>().notNull().default([]),
@@ -365,7 +391,7 @@ export const agents = pgTable(
     upstream: jsonb("upstream").$type<Record<string, unknown>>(),
     overridden: jsonb("overridden").$type<string[]>().notNull().default([]),
     // `"assistant"`: the workspace's Assistant (`agents/builtin.ts`), one per person and workspace. No input sets it.
-    builtIn: text("built_in").$type<"assistant">(),
+    builtIn: text("built_in", { enum: BUILT_IN_AGENTS }),
     // Raised by every configuration write (`agents.update`): strict permissions bind remembered choices to it.
     revision: integer("revision").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -374,8 +400,9 @@ export const agents = pgTable(
     uniqueIndex("agents_one_assistant_idx")
       .on(t.workspaceId, t.ownerId)
       .where(sql`${t.builtIn} = 'assistant'`),
-    check("agents_consult_mode_check", sql`${t.consultMode} in ('disabled', 'auto', 'whitelist')`),
-    check("agents_escalate_mode_check", sql`${t.escalateMode} in ('disabled', 'auto', 'whitelist')`),
+    oneOf(t.consultMode, ROUTING_MODES),
+    oneOf(t.escalateMode, ROUTING_MODES),
+    oneOf(t.builtIn, BUILT_IN_AGENTS),
   ],
 );
 
@@ -408,8 +435,10 @@ export const workflowVersions = pgTable(
   (t) => [primaryKey({ columns: [t.workflowId, t.version] })],
 );
 
-export type RunSource = "workflow" | "agent";
-export type RunStatus = "running" | "waiting" | "succeeded" | "failed";
+export const RUN_SOURCES = ["workflow", "agent"] as const;
+export type RunSource = (typeof RUN_SOURCES)[number];
+export const RUN_STATUSES = ["running", "waiting", "succeeded", "failed"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
 /** What started a run: the owner (from a browser, in its `timezone`), or a schedule's fire for `scheduledFor` (ISO 8601, UTC). */
 export type RunTrigger =
   | { type: "manual"; timezone?: string }
@@ -422,13 +451,17 @@ export type RunTrigger =
   | { type: "consult"; questionId: string; outputs: Record<string, string> }
   /** An update's conflicts the owner handed to Stem (`plugins/resolve.ts`), as the trigger node gives them to the Job. */
   | { type: "stem"; pluginId: string; outputs: Record<string, string> };
-export type StepStatus = "pending" | "running" | "waiting" | "succeeded" | "failed" | "skipped";
-export type TurnStatus = "unknown" | "idle" | "running";
+export const STEP_STATUSES = ["pending", "running", "waiting", "succeeded", "failed", "skipped"] as const;
+export type StepStatus = (typeof STEP_STATUSES)[number];
+export const TURN_STATUSES = ["unknown", "idle", "running"] as const;
+export type TurnStatus = (typeof TURN_STATUSES)[number];
 /** A cloud session: `running`, its loop works on it; `waiting`, on an answer; `idle`, a chat's turn ended; `done`. */
-export type CloudSessionStatus = "running" | "waiting" | "idle" | "done";
+export const CLOUD_SESSION_STATUSES = ["running", "waiting", "idle", "done"] as const;
+export type CloudSessionStatus = (typeof CLOUD_SESSION_STATUSES)[number];
 
 /** Who waits on a queued step, served in this order (`engine/slots.ts`): a person, a resume, a new start. */
-export type QueueClass = "person" | "resume" | "new";
+export const QUEUE_CLASSES = ["person", "resume", "new"] as const;
+export type QueueClass = (typeof QUEUE_CLASSES)[number];
 /** A step's credential: the workspace's, or its actor's own subscription on its runner (`runners/grants.ts`). */
 export type Placement = { kind: "workspace" } | { kind: "personal"; enrollmentId: string; actorId: string };
 
@@ -446,8 +479,10 @@ export type JobCause = (
   | { kind: "stem"; pluginId: string }
 ) & { depth: number };
 
-export type RootKind = "user" | "chat" | "schedule" | "event" | "poll";
-export type RootState = "going" | "paused" | "stopped";
+export const ROOT_KINDS = ["user", "chat", "schedule", "event", "poll"] as const;
+export type RootKind = (typeof ROOT_KINDS)[number];
+export const ROOT_STATES = ["going", "paused", "stopped"] as const;
+export type RootState = (typeof ROOT_STATES)[number];
 
 /**
  * A root cause: a person's start or write, a chat message, a schedule fire, a poll
@@ -464,13 +499,13 @@ export const roots = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
-    kind: text("kind").$type<RootKind>().notNull(),
+    kind: text("kind", { enum: ROOT_KINDS }).notNull(),
     // The run it started from: a chat's run, or its first Job. Its Approval is asked on it.
     runId: text("run_id"),
     jobs: integer("jobs").notNull().default(0),
     // The Jobs counted when it last went on: the next checkpoint is `checkpoint` Jobs further.
     countedFrom: integer("counted_from").notNull().default(0),
-    state: text("state").$type<RootState>().notNull().default("going"),
+    state: text("state", { enum: ROOT_STATES }).notNull().default("going"),
     dontAsk: boolean("dont_ask").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -478,6 +513,8 @@ export const roots = pgTable(
     index("roots_paused_idx")
       .on(t.ownerId)
       .where(sql`${t.state} = 'paused'`),
+    oneOf(t.kind, ROOT_KINDS),
+    oneOf(t.state, ROOT_STATES),
   ],
 );
 
@@ -506,7 +543,7 @@ export const runs = pgTable(
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     // A workflow run has its workflow and version; a Job (`source: "agent"`) has its agent (null
     // once deleted), its trigger and its own definition.
-    source: text("source").$type<RunSource>().notNull().default("workflow"),
+    source: text("source", { enum: RUN_SOURCES }).notNull().default("workflow"),
     workflowId: text("workflow_id").references(() => workflows.id, { onDelete: "cascade" }),
     version: integer("version").notNull(),
     // A Job outlives its agent: deleting the agent clears the link and keeps the name it had then.
@@ -522,7 +559,7 @@ export const runs = pgTable(
     // A Job's token for the Job endpoint (`platform/token.ts`): its hash and its sealed form, never the token.
     tokenHash: text("token_hash").unique(),
     tokenSealed: text("token_sealed"),
-    status: text("status").$type<RunStatus>().notNull(),
+    status: text("status", { enum: RUN_STATUSES }).notNull(),
     trigger: jsonb("trigger").$type<RunTrigger>().notNull().default({ type: "manual" }),
     error: text("error"),
     // The trace the run was created in (a scheduler tick, a request): to find its telemetry.
@@ -537,12 +574,17 @@ export const runs = pgTable(
     index("runs_agent_idx").on(t.agentId, t.createdAt),
     index("runs_status_idx").on(t.status),
     index("runs_root_idx").on(t.rootId),
+    oneOf(t.source, RUN_SOURCES),
+    oneOf(t.status, RUN_STATUSES),
   ],
 );
 
-export type ScheduleFireStatus = "started" | "skipped-overlap" | "refused";
-export type TriggerKind = "manual" | "schedule" | "primitive" | "poll";
-export type TriggerConcurrency = "parallel" | "one-at-a-time";
+export const SCHEDULE_FIRE_STATUSES = ["started", "skipped-overlap", "refused"] as const;
+export type ScheduleFireStatus = (typeof SCHEDULE_FIRE_STATUSES)[number];
+export const TRIGGER_KINDS = ["manual", "schedule", "primitive", "poll"] as const;
+export type TriggerKind = (typeof TRIGGER_KINDS)[number];
+export const TRIGGER_CONCURRENCIES = ["parallel", "one-at-a-time"] as const;
+export type TriggerConcurrency = (typeof TRIGGER_CONCURRENCIES)[number];
 
 /**
  * A poll's walk under way: `{{lastPoll}}` as it was when the walk began (every page runs that one
@@ -551,6 +593,7 @@ export type TriggerConcurrency = "parallel" | "one-at-a-time";
  */
 export type PollCursor = { lastPoll: string; startedAt: string; token: string | null };
 
+const BUILT_IN_TRIGGERS = ["review"] as const;
 /** What makes an agent work: each firing creates a Job. A schedule's next fire is claimed by the scheduler. */
 export const triggers = pgTable(
   "triggers",
@@ -560,12 +603,12 @@ export const triggers = pgTable(
     agentId: text("agent_id")
       .notNull()
       .references(() => agents.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<TriggerKind>().notNull(),
+    kind: text("kind", { enum: TRIGGER_KINDS }).notNull(),
     enabled: boolean("enabled").notNull().default(true),
     name: text("name").notNull(),
     // Added to the Job's prompt for this trigger.
     instructions: text("instructions").notNull().default(""),
-    concurrency: text("concurrency").$type<TriggerConcurrency>().notNull().default("parallel"),
+    concurrency: text("concurrency", { enum: TRIGGER_CONCURRENCIES }).notNull().default("parallel"),
     // A primitive or poll trigger's most Jobs in an hour; an event or item past it waits (deferred).
     rateCap: integer("rate_cap").notNull().default(60),
     config: jsonb("config").$type<TriggerConfig>().notNull(),
@@ -576,7 +619,7 @@ export const triggers = pgTable(
     // A poll walking its tool's continuation: where the walk is (null between walks).
     pollCursor: jsonb("poll_cursor").$type<PollCursor>(),
     // `"review"`: the Assistant's scheduled review of the workspace (`agents/builtin.ts`), one per agent. No input sets it.
-    builtIn: text("built_in").$type<"review">(),
+    builtIn: text("built_in", { enum: BUILT_IN_TRIGGERS }),
     // A plugin's trigger (`plugins/`): its plugin, its name there, the plugin's values of its fields and the ones its owner changed.
     pluginId: text("plugin_id").references((): AnyPgColumn => plugins.id, { onDelete: "set null" }),
     pluginComponent: text("plugin_component"),
@@ -593,6 +636,9 @@ export const triggers = pgTable(
     uniqueIndex("triggers_one_review_idx")
       .on(t.agentId)
       .where(sql`${t.builtIn} = 'review'`),
+    oneOf(t.kind, TRIGGER_KINDS),
+    oneOf(t.concurrency, TRIGGER_CONCURRENCIES),
+    oneOf(t.builtIn, BUILT_IN_TRIGGERS),
   ],
 );
 
@@ -606,12 +652,12 @@ export const triggerFires = pgTable(
       .notNull()
       .references(() => triggers.id, { onDelete: "cascade" }),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
-    status: text("status").$type<ScheduleFireStatus>().notNull(),
+    status: text("status", { enum: SCHEDULE_FIRE_STATUSES }).notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.triggerId, t.scheduledFor)],
+  (t) => [unique().on(t.triggerId, t.scheduledFor), oneOf(t.status, SCHEDULE_FIRE_STATUSES)],
 );
 
 /** A schedule-triggered workflow's next fire; the scheduler claims due rows. */
@@ -642,12 +688,12 @@ export const scheduleFires = pgTable(
       .notNull()
       .references(() => workflows.id, { onDelete: "cascade" }),
     scheduledFor: timestamp("scheduled_for", { withTimezone: true }).notNull(),
-    status: text("status").$type<ScheduleFireStatus>().notNull(),
+    status: text("status", { enum: SCHEDULE_FIRE_STATUSES }).notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique().on(t.workflowId, t.scheduledFor)],
+  (t) => [unique().on(t.workflowId, t.scheduledFor), oneOf(t.status, SCHEDULE_FIRE_STATUSES)],
 );
 
 /** One node of a run: the trigger or a step. A node with a session has one harness session. */
@@ -661,7 +707,7 @@ export const stepRuns = pgTable(
     nodeId: text("node_id").notNull(),
     // Which pass of a loop's body this row is (0 outside loops).
     iteration: integer("iteration").notNull().default(0),
-    status: text("status").$type<StepStatus>().notNull(),
+    status: text("status", { enum: STEP_STATUSES }).notNull(),
     sessionId: text("session_id").unique(),
     // The harness as it was when the session started, so an edit doesn't move a running session.
     harness: jsonb("harness").$type<Harness>(),
@@ -691,7 +737,7 @@ export const stepRuns = pgTable(
     // Holds one of its harness's slots: its session works on a turn, or is about to start.
     working: boolean("working").notNull().default(false),
     // Reported by the harness, independent of its slot; unknown until this session reports.
-    turnStatus: text("turn_status").$type<TurnStatus>().notNull().default("unknown"),
+    turnStatus: text("turn_status", { enum: TURN_STATUSES }).notNull().default("unknown"),
     turnId: text("turn_id"),
     interruptible: boolean("interruptible").notNull().default(false),
     // Input accepted after this boundary keeps its slot when the interrupted turn ends.
@@ -699,7 +745,7 @@ export const stepRuns = pgTable(
     codexInputId: text("codex_input_id"),
     // Waiting for a slot since then, served by class, then oldest first; null when not queued.
     queuedAt: timestamp("queued_at", { withTimezone: true }),
-    queueClass: text("queue_class").$type<QueueClass>(),
+    queueClass: text("queue_class", { enum: QUEUE_CLASSES }),
     // What it does once it holds a slot: set when queued (or handed one), cleared when done;
     // `recover()` replays it for a step handed a slot before the process stopped.
     pendingAction: jsonb("pending_action").$type<PendingAction>(),
@@ -720,6 +766,12 @@ export const stepRuns = pgTable(
     index("step_runs_working_idx")
       .on(t.harnessId)
       .where(sql`${t.working}`),
+    oneOf(t.status, STEP_STATUSES),
+    oneOf(t.turnStatus, TURN_STATUSES),
+    oneOf(t.queueClass, QUEUE_CLASSES),
+    // A step holds a slot or waits for one, never both (`engine/slots.ts`); a queued step has its class.
+    check("step_runs_working_not_queued", sql`not (${t.working} and ${t.queuedAt} is not null)`),
+    check("step_runs_queued_with_class", sql`(${t.queuedAt} is null) = (${t.queueClass} is null)`),
   ],
 );
 
@@ -727,6 +779,7 @@ export const stepRuns = pgTable(
 /** A file attached to a chat message: its attachment and the name it came with (metadata, never a path). */
 export type MessageFile = { id: string; name: string; image?: boolean };
 
+const MESSAGE_ROLES = ["assistant", "user", "tool"] as const;
 export const messages = pgTable(
   "messages",
   {
@@ -739,7 +792,7 @@ export const messages = pgTable(
     stepRunId: text("step_run_id")
       .notNull()
       .references(() => stepRuns.id, { onDelete: "cascade" }),
-    role: text("role").$type<"assistant" | "user" | "tool">().notNull(),
+    role: text("role", { enum: MESSAGE_ROLES }).notNull(),
     text: text("text").notNull(),
     /** A user message's attached files: attachments of the run, by id, with the name they came with. */
     files: jsonb("files").$type<MessageFile[]>(),
@@ -753,7 +806,7 @@ export const messages = pgTable(
     // The delivery under way that claimed it (`Engine.claimInputs`): its engine's id, then its own.
     delivering: text("delivering"),
   },
-  (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position)],
+  (t) => [index("messages_step_idx").on(t.stepRunId, t.position), index("messages_run_idx").on(t.runId, t.position), oneOf(t.role, MESSAGE_ROLES)],
 );
 
 /**
@@ -773,6 +826,7 @@ export const messageParts = pgTable(
   (t) => [index("message_parts_message_idx").on(t.messageId, t.id)],
 );
 
+const ARTIFACT_FORMATS = ["html", "svg"] as const;
 /**
  * A Job's generated artifacts (`artifact_show`): the code, kept here and read only through
  * `artifacts.get`. The chat's message holds a reference (`ArtifactRef`), never the code.
@@ -791,13 +845,13 @@ export const artifacts = pgTable(
       .notNull()
       .references(() => messages.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
-    format: text("format").$type<"html" | "svg">().notNull(),
+    format: text("format", { enum: ARTIFACT_FORMATS }).notNull(),
     code: text("code").notNull(),
     /** The earlier artifact of the same Job this one revises. */
     replaces: text("replaces"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("artifacts_run_idx").on(t.runId)],
+  (t) => [index("artifacts_run_idx").on(t.runId), oneOf(t.format, ARTIFACT_FORMATS)],
 );
 
 /**
@@ -805,7 +859,8 @@ export const artifacts = pgTable(
  * move out of it is a conditional update, so one of them wins. `steering` is a dispatched one whose
  * harness hasn't said yet whether it joined the turn (`steer-result`).
  */
-export type ChatQueueState = "pending" | "steering" | "dispatched" | "failed" | "removed";
+export const CHAT_QUEUE_STATES = ["pending", "steering", "dispatched", "failed", "removed"] as const;
+export type ChatQueueState = (typeof CHAT_QUEUE_STATES)[number];
 
 /**
  * The owner's chat messages sent while the chat was busy (`Engine.sendChat`), sent one per turn
@@ -825,7 +880,7 @@ export const chatQueue = pgTable(
     stepRunId: text("step_run_id")
       .notNull()
       .references(() => stepRuns.id, { onDelete: "cascade" }),
-    state: text("state").$type<ChatQueueState>().notNull().default("pending"),
+    state: text("state", { enum: CHAT_QUEUE_STATES }).notNull().default("pending"),
     text: text("text").notNull(),
     skillId: text("skill_id"),
     /** Taken for the Job when queued, as a message's files are when sent. */
@@ -836,48 +891,54 @@ export const chatQueue = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("chat_queue_step_idx").on(t.stepRunId, t.position), index("chat_queue_run_idx").on(t.runId, t.position)],
+  (t) => [index("chat_queue_step_idx").on(t.stepRunId, t.position), index("chat_queue_run_idx").on(t.runId, t.position), oneOf(t.state, CHAT_QUEUE_STATES)],
 );
 
 /**
  * Cloud sessions (`cloud/runner.ts`): Dispand runs their tool loop itself, so their history is
  * here. One row per session (`id` is the step run's session id).
  */
-export const cloudSessions = pgTable("cloud_sessions", {
-  id: text("id").primaryKey(),
-  stepRunId: text("step_run_id")
-    .notNull()
-    .references(() => stepRuns.id, { onDelete: "cascade" }),
-  harnessId: text("harness_id").notNull(),
-  // The agent's model, when it overrides the harness's.
-  model: text("model"),
-  start: jsonb("start").$type<StartParams>().notNull(),
-  // The conversation as the model sees it, append-only (assistant items keep the provider's raw content).
-  items: jsonb("items").$type<ChatItem[]>().notNull().default([]),
-  status: text("status").$type<CloudSessionStatus>().notNull(),
-  turnId: text("turn_id"),
-  // Chat messages that arrived during a turn: they join the history before the next model call.
-  queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
-  // The question the session waits on, for the tool call `callId` of the last assistant item.
-  // `key`: the tool a permission question is about, so its answer stays with that tool.
-  pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload; key?: string } | null>(),
-  // The tool call the owner allowed once, run next.
-  approvedCall: text("approved_call"),
-  // The tool that call was approved for: a name that now maps to another tool isn't run.
-  approvedKey: text("approved_key"),
-  // The tool call running now: a restart doesn't run it again.
-  inFlight: jsonb("in_flight").$type<{ callId: string; key: string } | null>(),
-  reminded: boolean("reminded").notNull().default(false),
-  // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).
-  seq: bigint("seq", { mode: "number" }).notNull().default(0),
-  lastEvent: jsonb("last_event").$type<CloudEvent>(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const cloudSessions = pgTable(
+  "cloud_sessions",
+  {
+    id: text("id").primaryKey(),
+    stepRunId: text("step_run_id")
+      .notNull()
+      .references(() => stepRuns.id, { onDelete: "cascade" }),
+    harnessId: text("harness_id").notNull(),
+    // The agent's model, when it overrides the harness's.
+    model: text("model"),
+    start: jsonb("start").$type<StartParams>().notNull(),
+    // The conversation as the model sees it, append-only (assistant items keep the provider's raw content).
+    items: jsonb("items").$type<ChatItem[]>().notNull().default([]),
+    status: text("status", { enum: CLOUD_SESSION_STATUSES }).notNull(),
+    turnId: text("turn_id"),
+    // Chat messages that arrived during a turn: they join the history before the next model call.
+    queued: jsonb("queued").$type<(string | { text: string; files: MessageFile[] })[]>().notNull().default([]),
+    // The question the session waits on, for the tool call `callId` of the last assistant item.
+    // `key`: the tool a permission question is about, so its answer stays with that tool.
+    pending: jsonb("pending").$type<{ questionId: string; callId: string; payload: QuestionPayload; key?: string } | null>(),
+    // The tool call the owner allowed once, run next.
+    approvedCall: text("approved_call"),
+    // The tool that call was approved for: a name that now maps to another tool isn't run.
+    approvedKey: text("approved_key"),
+    // The tool call running now: a restart doesn't run it again.
+    inFlight: jsonb("in_flight").$type<{ callId: string; key: string } | null>(),
+    reminded: boolean("reminded").notNull().default(false),
+    // The last event's seq, and the event, handed to the engine again on boot (it drops it if handled).
+    seq: bigint("seq", { mode: "number" }).notNull().default(0),
+    lastEvent: jsonb("last_event").$type<CloudEvent>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [oneOf(t.status, CLOUD_SESSION_STATUSES)],
+);
 
-export type QuestionStatus = "pending" | "answered" | "expired";
+export const QUESTION_STATUSES = ["pending", "answered", "expired"] as const;
+export type QuestionStatus = (typeof QUESTION_STATUSES)[number];
 
 /** `consult`: a question to another agent, answered by that agent's Job (`engine/consults.ts`), never by a person: not an Inbox item. */
-export type QuestionKind = "question" | "approval" | "consult";
+export const QUESTION_KINDS = ["question", "approval", "consult"] as const;
+export type QuestionKind = (typeof QUESTION_KINDS)[number];
 /** One write of a proposal: a platform tool and its input as the tool parsed it; `usedAt` once the Job made that call. */
 /**
  * `input` may hold `{ "$item": n }`: what item `n` created (`createdId`). A used item is
@@ -900,6 +961,7 @@ export type ProposalItem = {
   /** What the owner reads of the item that its input doesn't hold, read by the server when it was proposed (a plugin install's agents' rights). */ shown?: unknown;
 };
 
+const PROPOSAL_STATUSES = ["draft", "asked", "approved", "declined"] as const;
 /**
  * Proposals (`platform/proposals.ts`): the writes a Job's agent asks a person to approve
  * before it makes them, for what changes what agents may do. `draft` until the agent asks for
@@ -918,13 +980,13 @@ export const proposals = pgTable(
     items: jsonb("items").$type<ProposalItem[]>().notNull(),
     /** The business name of the generated plugin that records what its items create, if any. */
     plugin: text("plugin"),
-    status: text("status").$type<"draft" | "asked" | "approved" | "declined">().notNull().default("draft"),
+    status: text("status", { enum: PROPOSAL_STATUSES }).notNull().default("draft"),
     // The Approval it was asked with.
     questionId: text("question_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     settledAt: timestamp("settled_at", { withTimezone: true }),
   },
-  (t) => [index("proposals_run_idx").on(t.runId)],
+  (t) => [index("proposals_run_idx").on(t.runId), oneOf(t.status, PROPOSAL_STATUSES)],
 );
 
 /**
@@ -951,6 +1013,7 @@ export type Route = {
   left?: "notAllowed" | "timeout";
 };
 
+const QUESTION_PLACEMENTS = ["chat", "notifications"] as const;
 export const questions = pgTable(
   "questions",
   {
@@ -964,13 +1027,13 @@ export const questions = pgTable(
     sessionId: text("session_id"),
     // The id the runner gave it, sent back with the answer.
     runnerQuestionId: text("runner_question_id"),
-    placement: text("placement").$type<"chat" | "notifications">().notNull(),
+    placement: text("placement", { enum: QUESTION_PLACEMENTS }).notNull(),
     // An approval authorizes an action (a permission); a question asks for words or a choice.
-    kind: text("kind").$type<QuestionKind>().notNull().default("question"),
+    kind: text("kind", { enum: QUESTION_KINDS }).notNull().default("question"),
     payload: jsonb("payload").$type<QuestionPayload>().notNull(),
     // Only the server offers what an owner may remember for a tool approval.
     remember: jsonb("remember").$type<RememberOffer>(),
-    status: text("status").$type<QuestionStatus>().notNull(),
+    status: text("status", { enum: QUESTION_STATUSES }).notNull(),
     answer: jsonb("answer").$type<Answer>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     answeredAt: timestamp("answered_at", { withTimezone: true }),
@@ -1019,9 +1082,13 @@ export const questions = pgTable(
     uniqueIndex("questions_checkpoint_idx")
       .on(t.rootId)
       .where(sql`${t.status} = 'pending'`),
+    oneOf(t.placement, QUESTION_PLACEMENTS),
+    oneOf(t.kind, QUESTION_KINDS),
+    oneOf(t.status, QUESTION_STATUSES),
   ],
 );
 
+const PAGE_KINDS = ["home", "page"] as const;
 // Dashboards: a person's home page in a workspace (one per person and workspace, fixed) and its widgets.
 export const pages = pgTable(
   "pages",
@@ -1033,7 +1100,7 @@ export const pages = pgTable(
     workspaceId: text("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"home" | "page">().notNull(),
+    kind: text("kind", { enum: PAGE_KINDS }).notNull(),
     title: text("title").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -1041,9 +1108,11 @@ export const pages = pgTable(
     uniqueIndex("pages_one_home_idx")
       .on(t.workspaceId, t.ownerId)
       .where(sql`${t.kind} = 'home'`),
+    oneOf(t.kind, PAGE_KINDS),
   ],
 );
 
+const WIDGET_TYPES = ["workflow-form", "trigger-form", "grid", "table"] as const;
 export const widgets = pgTable(
   "widgets",
   {
@@ -1054,7 +1123,7 @@ export const widgets = pgTable(
     pageId: text("page_id")
       .notNull()
       .references(() => pages.id, { onDelete: "cascade" }),
-    type: text("type").$type<"workflow-form" | "trigger-form" | "grid" | "table">().notNull(),
+    type: text("type", { enum: WIDGET_TYPES }).notNull(),
     title: text("title").notNull(),
     // A workflow form has a workflow; a trigger form an agent's manual trigger; a Grid or Table
     // widget a table and its config.
@@ -1111,7 +1180,8 @@ export const tables = pgTable(
 export type EventActor = { type: "user"; userId: string } | { type: "job"; runId: string } | { type: "step"; runId: string; stepId: string };
 
 /** A row's write; for the built-in `interaction` kind, a Question or an Approval asked, answered or expired. */
-export type EventOperation = "created" | "updated" | "deleted" | "answered" | "expired" | "finished" | "failed";
+export const EVENT_OPERATIONS = ["created", "updated", "deleted", "answered", "expired", "finished", "failed"] as const;
+export type EventOperation = (typeof EVENT_OPERATIONS)[number];
 
 /**
  * The outbox (node C): one row per write of a row of a primitive table, appended in the same
@@ -1130,7 +1200,7 @@ export const events = pgTable(
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     tableId: text("table_id").notNull(),
     rowId: text("row_id").notNull(),
-    operation: text("operation").$type<EventOperation>().notNull(),
+    operation: text("operation", { enum: EVENT_OPERATIONS }).notNull(),
     changedFieldIds: jsonb("changed_field_ids").$type<string[]>().notNull(),
     before: jsonb("before").$type<Record<string, Cell>>().notNull(),
     after: jsonb("after").$type<Record<string, Cell>>().notNull(),
@@ -1145,10 +1215,12 @@ export const events = pgTable(
       .on(t.createdAt)
       .where(sql`${t.processedAt} is null`),
     index("events_table_row_idx").on(t.tableId, t.rowId),
+    oneOf(t.operation, EVENT_OPERATIONS),
   ],
 );
 
-export type EventFireStatus = "started" | "deferred" | "skipped-same-agent" | "out-of-scope" | "refused" | "stopped";
+export const EVENT_FIRE_STATUSES = ["started", "deferred", "skipped-same-agent", "out-of-scope", "refused", "stopped"] as const;
+export type EventFireStatus = (typeof EVENT_FIRE_STATUSES)[number];
 
 /**
  * What one event did for one primitive trigger, once (the unique key). A deferred fire (past the
@@ -1166,7 +1238,7 @@ export const eventFires = pgTable(
     eventId: text("event_id")
       .notNull()
       .references(() => events.id, { onDelete: "cascade" }),
-    status: text("status").$type<EventFireStatus>().notNull(),
+    status: text("status", { enum: EVENT_FIRE_STATUSES }).notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
@@ -1179,10 +1251,12 @@ export const eventFires = pgTable(
       .on(t.createdAt)
       .where(sql`${t.status} = 'deferred'`),
     index("event_fires_started_idx").on(t.triggerId, t.startedAt),
+    oneOf(t.status, EVENT_FIRE_STATUSES),
   ],
 );
 
-export type PollStatus = "calling" | "baseline" | "polled" | "skipped" | "failed";
+export const POLL_STATUSES = ["calling", "baseline", "polled", "skipped", "failed"] as const;
+export type PollStatus = (typeof POLL_STATUSES)[number];
 
 /**
  * One poll of a poll trigger: claimed (`calling`, its call under way or cut short), then what it
@@ -1199,16 +1273,17 @@ export const polls = pgTable(
       .references(() => triggers.id, { onDelete: "cascade" }),
     // When it was claimed, before its call: what its new items' `first_seen` is.
     at: timestamp("at", { withTimezone: true }).notNull(),
-    status: text("status").$type<PollStatus>().notNull(),
+    status: text("status", { enum: POLL_STATUSES }).notNull(),
     // Items the call returned, and how many of them were new.
     found: integer("found").notNull().default(0),
     fresh: integer("fresh").notNull().default(0),
     message: text("message"),
   },
-  (t) => [index("polls_trigger_idx").on(t.triggerId, t.at)],
+  (t) => [index("polls_trigger_idx").on(t.triggerId, t.at), oneOf(t.status, POLL_STATUSES)],
 );
 
-export type PollItemStatus = "baseline" | "started" | "deferred" | "out-of-scope" | "refused";
+export const POLL_ITEM_STATUSES = ["baseline", "started", "deferred", "out-of-scope", "refused"] as const;
+export type PollItemStatus = (typeof POLL_ITEM_STATUSES)[number];
 
 /**
  * Each item a poll trigger has seen, once (the unique key), with its content (what its Job is
@@ -1229,7 +1304,7 @@ export const pollItems = pgTable(
     content: text("content").notNull(),
     // The poll that found it: its claim's time (`{{lastPoll}}` is the newest of these).
     firstSeen: timestamp("first_seen", { withTimezone: true }).notNull(),
-    status: text("status").$type<PollItemStatus>().notNull(),
+    status: text("status", { enum: POLL_ITEM_STATUSES }).notNull(),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     message: text("message"),
     // When its Job was created: what the rate cap counts.
@@ -1242,6 +1317,7 @@ export const pollItems = pgTable(
       .where(sql`${t.status} = 'deferred'`),
     index("poll_items_started_idx").on(t.triggerId, t.startedAt),
     index("poll_items_seen_idx").on(t.triggerId, t.firstSeen),
+    oneOf(t.status, POLL_ITEM_STATUSES),
   ],
 );
 
@@ -1254,7 +1330,7 @@ export const fields = pgTable(
       .notNull()
       .references(() => tables.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    type: text("type").$type<FieldType>().notNull(),
+    type: text("type", { enum: FIELD_TYPES }).notNull(),
     choices: jsonb("choices").$type<Choice[]>().notNull().default([]),
     // A reference field: the table whose rows it names. A table something points at can't be
     // deleted (`tables.delete` refuses): no cascade.
@@ -1264,7 +1340,7 @@ export const fields = pgTable(
     /** Its name in the definition of its plugin's table, when it was made from one. */
     pluginField: text("plugin_field"),
   },
-  (t) => [uniqueIndex("fields_table_name_idx").on(t.tableId, sql`lower(${t.name})`)],
+  (t) => [uniqueIndex("fields_table_name_idx").on(t.tableId, sql`lower(${t.name})`), oneOf(t.type, FIELD_TYPES)],
 );
 
 export const rows = pgTable(
@@ -1307,6 +1383,15 @@ export const attachments = pgTable(
   (t) => [index("attachments_table_idx").on(t.tableId), index("attachments_job_idx").on(t.jobId)],
 );
 
+/**
+ * What a marketplace row reads: a Git repository with a `.claude-plugin/marketplace.json`, or that
+ * is one plugin (`.claude-plugin/plugin.json`: one entry, its root); a Git repository of skills
+ * (`skills/<name>/SKILL.md`, no marketplace file: one entry), or that is one skill (a root
+ * `SKILL.md`: one entry, that skill); or a skill site's `/.well-known/skills/index.json` (one entry).
+ */
+export const MARKETPLACE_KINDS = ["marketplace", "skill-repo", "well-known"] as const;
+export type MarketplaceKind = (typeof MARKETPLACE_KINDS)[number];
+
 // Plugin marketplaces: Git repositories with a `.claude-plugin/marketplace.json`, read at each
 // sync. The built-in ones are seeded with the owner and can't be removed.
 export const marketplaces = pgTable(
@@ -1320,7 +1405,7 @@ export const marketplaces = pgTable(
     /** The marketplace's own name, from its last sync. */
     name: text("name").notNull(),
     url: text("url").notNull(),
-    kind: text("kind").$type<MarketplaceKind>().notNull().default("marketplace"),
+    kind: text("kind", { enum: MARKETPLACE_KINDS }).notNull().default("marketplace"),
     builtIn: boolean("built_in").notNull().default(false),
     entries: jsonb("entries").$type<MarketplaceEntry[]>().notNull().default([]),
     syncedAt: timestamp("synced_at", { withTimezone: true }),
@@ -1328,7 +1413,7 @@ export const marketplaces = pgTable(
     syncError: text("sync_error"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("marketplaces_workspace_url").on(t.workspaceId, t.url)],
+  (t) => [unique("marketplaces_workspace_url").on(t.workspaceId, t.url), oneOf(t.kind, MARKETPLACE_KINDS)],
 );
 
 /** The kinds of what a plugin lists as created from it. */
@@ -1341,6 +1426,8 @@ export const CREATED_KINDS = ["table", "field", "agent", "trigger", "tool"] as c
  */
 export type PluginCreated = Partial<Record<(typeof CREATED_KINDS)[number], string[]>> & { from?: Record<string, string> };
 
+const PLUGIN_SOURCES = ["marketplace", "generated"] as const;
+const PLUGIN_LAYOUTS = ["claude", "standard"] as const;
 // Installed plugins: an entry of a marketplace, read at commit `sha`. What it brings (a skill
 // package, tools, agents) references it and, on uninstall, stays the owner's (`plugin_id` set
 // null). What was created from it is listed in `created`; a `generated` one ("Generated: <business
@@ -1355,7 +1442,7 @@ export const plugins = pgTable(
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     description: text("description").notNull(),
-    source: text("source").$type<"marketplace" | "generated">().notNull().default("marketplace"),
+    source: text("source", { enum: PLUGIN_SOURCES }).notNull().default("marketplace"),
     /** A marketplace plugin's entry; null for a generated one, as are `url` and `sha`. */
     marketplaceId: text("marketplace_id").references(() => marketplaces.id),
     entryName: text("entry_name"),
@@ -1365,7 +1452,7 @@ export const plugins = pgTable(
     /** Resolved root in the imported Git tree; null for imports made before native identity was recorded. */
     nativeRoot: text("native_root"),
     /** How it was read: the Claude plugin layout, or Agent Plugins' (`standard`). */
-    layout: text("layout").$type<"claude" | "standard">().notNull().default("claude"),
+    layout: text("layout", { enum: PLUGIN_LAYOUTS }).notNull().default("claude"),
     /** Everything the plugin offered when last read, imported or not. */
     components: jsonb("components").$type<PluginComponents>().notNull(),
     notImported: jsonb("not_imported").$type<NotImported[]>().notNull().default([]),
@@ -1392,9 +1479,19 @@ export const plugins = pgTable(
     uniqueIndex("plugins_workspace_generated_idx")
       .on(t.workspaceId, t.name)
       .where(sql`${t.source} = 'generated'`),
+    oneOf(t.source, PLUGIN_SOURCES),
+    oneOf(t.layout, PLUGIN_LAYOUTS),
   ],
 );
 
+const TOOL_KINDS = ["http", "runner"] as const;
+export const TRANSPORTS = ["streamable-http", "sse"] as const;
+export type ToolTransport = (typeof TRANSPORTS)[number];
+/** How an HTTP tool signs in: nothing, its sealed headers, or OAuth. */
+export const AUTHS = ["none", "headers", "oauth"] as const;
+export type ToolAuth = (typeof AUTHS)[number];
+export const OAUTH_STATUSES = ["authorize", "connected", "reauthorize"] as const;
+export type OAuthStatus = (typeof OAUTH_STATUSES)[number];
 /**
  * Tools: MCP servers agents and Tool steps call (`tools/`). `http` tools are called by URL from
  * the server (and by the CLIs), with headers sealed one by one (`headerAad(id, name, url)`, bound to the URL's origin);
@@ -1414,7 +1511,7 @@ export const tools = pgTable(
     // `runnerTool` in that runner's own config (Dispand never knows its command), or, with a
     // null `runnerTool`, its plugin's stdio server `pluginComponent`, which the runner starts
     // only as its own record allows (`plugins/servers.ts`).
-    kind: text("kind").$type<"http" | "runner">().notNull(),
+    kind: text("kind", { enum: TOOL_KINDS }).notNull(),
     // Retargeting invalidates reviewed grants, even when the tool is later pointed back.
     permissionRevision: integer("permission_revision").notNull().default(0),
     // With `urlSealed`, the URL's template (with its `${VAR}` placeholders), shown in place of it. Null for a runner tool.
@@ -1423,7 +1520,7 @@ export const tools = pgTable(
     // `{ url, secrets }` (`urlAad(id)`). Added with 0023: every row is written by `insertTool`
     // under its rules (secrets only in the path or query), so none holds a secret in its host.
     urlSealed: text("url_sealed"),
-    transport: text("transport").$type<ToolTransport>(),
+    transport: text("transport", { enum: TRANSPORTS }),
     // Header name (lower case) → sealed value. Never leaves the server; views list the names.
     headersSealed: jsonb("headers_sealed").$type<Record<string, string>>().notNull().default({}),
     // From the last listing that succeeded; `actionsError` says why the last one failed.
@@ -1445,12 +1542,12 @@ export const tools = pgTable(
     runnerId: text("runner_id").references(() => runners.id),
     runnerTool: text("runner_tool"),
     // How an HTTP tool signs in: nothing, its sealed headers, or OAuth (`tools/oauth.ts`; no headers then).
-    auth: text("auth").$type<ToolAuth>().notNull().default("none"),
+    auth: text("auth", { enum: AUTHS }).notNull().default("none"),
     // OAuth only. The sealed state (`oauthAad(id)`): client information and tokens per issuer,
     // discovery, the owner's entered client, and a flow under way with its verifier. Never leaves the server.
     oauthSealed: text("oauth_sealed"),
     // `authorize` (never connected), `connected`, or `reauthorize` (its grant stopped working): shown without opening the seal.
-    oauthStatus: text("oauth_status").$type<OAuthStatus>(),
+    oauthStatus: text("oauth_status", { enum: OAUTH_STATUSES }),
     // SHA-256 of the `state` of the flow under way, which the callback finds the tool by.
     oauthStateHash: text("oauth_state_hash"),
     // The client id the owner entered (not a secret; its secret is sealed in `oauthSealed`).
@@ -1460,6 +1557,10 @@ export const tools = pgTable(
   (t) => [
     uniqueIndex("tools_workspace_name_idx").on(t.workspaceId, sql`coalesce(${t.pluginId}, '')`, sql`lower(${t.name})`),
     index("tools_oauth_state_idx").on(t.oauthStateHash),
+    oneOf(t.kind, TOOL_KINDS),
+    oneOf(t.transport, TRANSPORTS),
+    oneOf(t.auth, AUTHS),
+    oneOf(t.oauthStatus, OAUTH_STATUSES),
   ],
 );
 
@@ -1559,6 +1660,8 @@ export const pluginNativeFiles = pgTable(
   (t) => [primaryKey({ columns: [t.pluginId, t.path] })],
 );
 
+const CONFLICT_KINDS = ["agent", "tool", "trigger", "table", "skill_file"] as const;
+const CONFLICT_STATUSES = ["stem", "approval", "open"] as const;
 /**
  * A plugin's skill files as the plugin has them (`plugins/`), beside `skill_files`, which holds the
  * files in effect: a path whose content differs is its owner's change, one only there is a file
@@ -1580,19 +1683,24 @@ export const pluginConflicts = pgTable(
     pluginId: text("plugin_id")
       .notNull()
       .references(() => plugins.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"agent" | "tool" | "trigger" | "table" | "skill_file">().notNull(),
+    kind: text("kind", { enum: CONFLICT_KINDS }).notNull(),
     elementId: text("element_id").notNull(),
     field: text("field").notNull(),
     old: jsonb("old"),
     mine: jsonb("mine"),
     next: jsonb("next"),
     /** `stem` while Stem decides, `approval` while its merged value waits for the owner, `open` when it is the owner's to decide again. */
-    status: text("status").$type<"stem" | "approval" | "open">().notNull(),
+    status: text("status", { enum: CONFLICT_STATUSES }).notNull(),
     merged: jsonb("merged"),
     runId: text("run_id").references(() => runs.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [uniqueIndex("plugin_conflicts_field_idx").on(t.kind, t.elementId, t.field), index("plugin_conflicts_run_idx").on(t.runId)],
+  (t) => [
+    uniqueIndex("plugin_conflicts_field_idx").on(t.kind, t.elementId, t.field),
+    index("plugin_conflicts_run_idx").on(t.runId),
+    oneOf(t.kind, CONFLICT_KINDS),
+    oneOf(t.status, CONFLICT_STATUSES),
+  ],
 );
 
 export const skillFileUpstream = pgTable(
@@ -1746,10 +1854,10 @@ export const audit = pgTable(
     // The acting agent (a Job's, or one acting unattended): what the agent filter reads.
     actorAgentId: text("actor_agent_id"),
     jobId: text("job_id"),
-    action: text("action").$type<AuditAction>().notNull(),
-    resourceType: text("resource_type").$type<AuditResource>().notNull(),
+    action: text("action", { enum: AUDIT_ACTIONS }).notNull(),
+    resourceType: text("resource_type", { enum: AUDIT_RESOURCES }).notNull(),
     resourceId: text("resource_id"),
-    result: text("result").$type<AuditResult>().notNull(),
+    result: text("result", { enum: AUDIT_RESULTS }).notNull(),
     details: jsonb("details").$type<AuditDetails>().notNull(),
     traceId: text("trace_id"),
   },
@@ -1758,9 +1866,13 @@ export const audit = pgTable(
     index("audit_workspace_job_idx").on(t.workspaceId, t.jobId, t.at),
     index("audit_workspace_action_idx").on(t.workspaceId, t.action, t.at),
     index("audit_at_idx").on(t.at),
+    oneOf(t.action, AUDIT_ACTIONS),
+    oneOf(t.resourceType, AUDIT_RESOURCES),
+    oneOf(t.result, AUDIT_RESULTS),
   ],
 );
 
+const MEMORY_SCOPES = ["workspace", "table", "agent"] as const;
 /**
  * Memory (`memory/`): one row per entry of the workspace's, a table's or an agent's memory, as its
  * current revision says. Exactly the scope's column is set, and a table's or an agent's memory
@@ -1776,13 +1888,13 @@ export const memories = pgTable(
       .notNull()
       .references(() => workspaces.id, { onDelete: "cascade" }),
     ownerId: text("owner_id").references(() => user.id, { onDelete: "set null" }),
-    scope: text("scope").$type<"workspace" | "table" | "agent">().notNull(),
+    scope: text("scope", { enum: MEMORY_SCOPES }).notNull(),
     tableId: text("table_id").references(() => tables.id, { onDelete: "cascade" }),
     agentId: text("agent_id").references(() => agents.id, { onDelete: "cascade" }),
     path: text("path").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull(),
-    type: text("type").$type<MemoryType>().notNull(),
+    type: text("type", { enum: MEMORY_TYPES }).notNull(),
     body: text("body").notNull(),
     author: jsonb("author").$type<MemoryAuthor>().notNull(),
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -1798,6 +1910,7 @@ export const memories = pgTable(
       "memories_scope_check",
       sql`(${t.scope} = 'workspace' and ${t.tableId} is null and ${t.agentId} is null) or (${t.scope} = 'table' and ${t.tableId} is not null and ${t.agentId} is null) or (${t.scope} = 'agent' and ${t.agentId} is not null and ${t.tableId} is null)`,
     ),
+    oneOf(t.type, MEMORY_TYPES),
   ],
 );
 
@@ -1813,13 +1926,13 @@ export const memoryRevisions = pgTable(
     path: text("path").notNull(),
     name: text("name").notNull(),
     description: text("description").notNull(),
-    type: text("type").$type<MemoryType>().notNull(),
+    type: text("type", { enum: MEMORY_TYPES }).notNull(),
     body: text("body").notNull(),
     removed: boolean("removed").notNull().default(false),
     author: jsonb("author").$type<MemoryAuthor>().notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision)],
+  (t) => [unique("memory_revisions_memory_revision").on(t.memoryId, t.revision), oneOf(t.type, MEMORY_TYPES)],
 );
 
 /** The install's VAPID key pair for Web Push (`push/keys.ts`), made on first need: one row, the private key sealed. */
@@ -1830,22 +1943,27 @@ export const pushKeys = pgTable("push_keys", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+const LANGUAGES = ["en", "fr"] as const;
 /**
  * A browser or device the owner allowed to get Web Push (`push/procedures.ts`): its push service
  * endpoint, its keys sealed, a label from its user agent, and the language that browser shows
  * (refreshed each time it subscribes again). Only items asked after `created_at` reach it.
  */
-export const pushSubscriptions = pgTable("push_subscriptions", {
-  id: text("id").primaryKey(),
-  ownerId: text("owner_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  endpoint: text("endpoint").notNull().unique(),
-  keys: text("keys").notNull(),
-  label: text("label").notNull(),
-  language: text("language").$type<"en" | "fr">().notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: text("id").primaryKey(),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull().unique(),
+    keys: text("keys").notNull(),
+    label: text("label").notNull(),
+    language: text("language", { enum: LANGUAGES }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [oneOf(t.language, LANGUAGES)],
+);
 
 /** An Inbox item pushed to a subscription (`push/sender.ts`): never sent to it again. */
 export const pushDeliveries = pgTable(

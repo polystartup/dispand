@@ -4,8 +4,9 @@ import { StorableText } from "../text.ts";
 
 // Pure: the web form checks what it sends with the same schema the procedures do.
 
-export type CloudKind = "anthropic" | "openai" | "openai-compatible";
-export const CLOUD_KINDS = ["anthropic", "openai", "openai-compatible"] as const satisfies readonly CloudKind[];
+/** A cloud harness's provider. */
+export const CLOUD_KINDS = ["anthropic", "openai", "openai-compatible"] as const;
+export type CloudKind = (typeof CLOUD_KINDS)[number];
 
 export const Name = z.string().trim().min(1).max(100);
 

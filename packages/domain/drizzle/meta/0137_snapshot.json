@@ -1,6 +1,6 @@
 {
-  "id": "a2529576-4066-4cad-9aaf-ff7b6e3bc5bf",
-  "prevId": "143d30da-6b3c-4df5-afc0-8f9b11a33af5",
+  "id": "f70ab94e-4184-49c3-8b1d-cf967f4407f0",
+  "prevId": "bd3df171-ed9b-4418-b3fa-e99c753d434c",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -885,6 +885,10 @@
         "agents_escalate_mode_check": {
           "name": "agents_escalate_mode_check",
           "value": "\"agents\".\"escalate_mode\" in ('disabled', 'auto', 'whitelist')"
+        },
+        "agents_built_in_check": {
+          "name": "agents_built_in_check",
+          "value": "\"agents\".\"built_in\" in ('assistant')"
         }
       },
       "isRLSEnabled": false
@@ -1010,7 +1014,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "artifacts_format_check": {
+          "name": "artifacts_format_check",
+          "value": "\"artifacts\".\"format\" in ('html', 'svg')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.attachments": {
@@ -1371,7 +1380,20 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "audit_action_check": {
+          "name": "audit_action_check",
+          "value": "\"audit\".\"action\" in ('job.created', 'job.queued', 'job.started', 'job.grantIssued', 'job.paused', 'job.turn', 'job.turnInterrupt', 'job.reopened', 'job.waiting', 'job.finished', 'job.failed', 'job.skipped', 'checkpoint.reached', 'checkpoint.answered', 'question.asked', 'question.answered', 'question.awaitingConsent', 'question.consented', 'question.expired', 'question.refused', 'question.rerouted', 'question.unanswered', 'consult.asked', 'consult.ended', 'platform.call', 'tool.call', 'poll.run', 'poll.itemRetried', 'event.recorded', 'memory.written', 'plugin.decided', 'plugin.nativeGranted', 'plugin.nativeApproved', 'workspace.created', 'workspace.renamed', 'workspace.runnerRegistered', 'workspace.runnerRevoked', 'workspace.subscriptionEnrolled', 'workspace.subscriptionEnded', 'workspace.memberRemoved', 'workspace.memberAssigned', 'workspace.organizationMemberRemoved', 'workspace.ownershipTransferred', 'workspace.personArchived', 'workspace.personPurged', 'workspace.personRestored', 'workspace.retentionChanged', 'workspace.invited', 'workspace.invitationRevoked', 'workspace.invitationAccepted', 'profile.updated')"
+        },
+        "audit_resource_type_check": {
+          "name": "audit_resource_type_check",
+          "value": "\"audit\".\"resource_type\" in ('job', 'root', 'question', 'consult', 'tool', 'trigger', 'poll', 'table', 'row', 'field', 'agent', 'harness', 'proposal', 'plugin', 'marketplace', 'memory', 'artifact', 'workspace', 'user')"
+        },
+        "audit_result_check": {
+          "name": "audit_result_check",
+          "value": "\"audit\".\"result\" in ('ok', 'refused', 'failed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.chat_queue": {
@@ -1559,7 +1581,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "chat_queue_state_check": {
+          "name": "chat_queue_state_check",
+          "value": "\"chat_queue\".\"state\" in ('pending', 'steering', 'dispatched', 'failed', 'removed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.cloud_sessions": {
@@ -1693,7 +1720,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "cloud_sessions_status_check": {
+          "name": "cloud_sessions_status_check",
+          "value": "\"cloud_sessions\".\"status\" in ('running', 'waiting', 'idle', 'done')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.event_fires": {
@@ -1860,7 +1892,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "event_fires_status_check": {
+          "name": "event_fires_status_check",
+          "value": "\"event_fires\".\"status\" in ('started', 'deferred', 'skipped-same-agent', 'out-of-scope', 'refused', 'stopped')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.events": {
@@ -2030,7 +2067,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "events_operation_check": {
+          "name": "events_operation_check",
+          "value": "\"events\".\"operation\" in ('created', 'updated', 'deleted', 'answered', 'expired', 'finished', 'failed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.fields": {
@@ -2160,7 +2202,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "fields_type_check": {
+          "name": "fields_type_check",
+          "value": "\"fields\".\"type\" in ('text', 'long-text', 'number', 'checkbox', 'date', 'url', 'attachment', 'single-select', 'reference')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.harnesses": {
@@ -2322,6 +2369,22 @@
         "harnesses_max_working_range": {
           "name": "harnesses_max_working_range",
           "value": "\"harnesses\".\"max_working\" between 1 and 100"
+        },
+        "harnesses_type_check": {
+          "name": "harnesses_type_check",
+          "value": "\"harnesses\".\"type\" in ('cli', 'cloud')"
+        },
+        "harnesses_kind_check": {
+          "name": "harnesses_kind_check",
+          "value": "\"harnesses\".\"kind\" in ('claude-code', 'codex', 'anthropic', 'openai', 'openai-compatible')"
+        },
+        "harnesses_permission_mode_check": {
+          "name": "harnesses_permission_mode_check",
+          "value": "\"harnesses\".\"permission_mode\" in ('default', 'acceptEdits', 'plan', 'bypassPermissions')"
+        },
+        "harnesses_effort_check": {
+          "name": "harnesses_effort_check",
+          "value": "\"harnesses\".\"effort\" in ('low', 'medium', 'high')"
         }
       },
       "isRLSEnabled": false
@@ -2442,7 +2505,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "marketplaces_kind_check": {
+          "name": "marketplaces_kind_check",
+          "value": "\"marketplaces\".\"kind\" in ('marketplace', 'skill-repo', 'well-known')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.memories": {
@@ -2673,6 +2741,10 @@
         "memories_scope_check": {
           "name": "memories_scope_check",
           "value": "(\"memories\".\"scope\" = 'workspace' and \"memories\".\"table_id\" is null and \"memories\".\"agent_id\" is null) or (\"memories\".\"scope\" = 'table' and \"memories\".\"table_id\" is not null and \"memories\".\"agent_id\" is null) or (\"memories\".\"scope\" = 'agent' and \"memories\".\"agent_id\" is not null and \"memories\".\"table_id\" is null)"
+        },
+        "memories_type_check": {
+          "name": "memories_type_check",
+          "value": "\"memories\".\"type\" in ('business', 'practice', 'fact', 'reference')"
         }
       },
       "isRLSEnabled": false
@@ -2777,6 +2849,89 @@
           ]
         }
       },
+      "policies": {},
+      "checkConstraints": {
+        "memory_revisions_type_check": {
+          "name": "memory_revisions_type_check",
+          "value": "\"memory_revisions\".\"type\" in ('business', 'practice', 'fact', 'reference')"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.message_parts": {
+      "name": "message_parts",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigint",
+          "primaryKey": true,
+          "notNull": true,
+          "identity": {
+            "type": "always",
+            "name": "message_parts_id_seq",
+            "schema": "public",
+            "increment": "1",
+            "startWith": "1",
+            "minValue": "1",
+            "maxValue": "9223372036854775807",
+            "cache": "1",
+            "cycle": false
+          }
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "text": {
+          "name": "text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "message_parts_message_idx": {
+          "name": "message_parts_message_idx",
+          "columns": [
+            {
+              "expression": "message_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "message_parts_message_id_messages_id_fk": {
+          "name": "message_parts_message_id_messages_id_fk",
+          "tableFrom": "message_parts",
+          "tableTo": "messages",
+          "columnsFrom": [
+            "message_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
@@ -2964,7 +3119,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "messages_role_check": {
+          "name": "messages_role_check",
+          "value": "\"messages\".\"role\" in ('assistant', 'user', 'tool')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.organization_members": {
@@ -3215,7 +3375,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "pages_kind_check": {
+          "name": "pages_kind_check",
+          "value": "\"pages\".\"kind\" in ('home', 'page')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.personal_grants": {
@@ -3508,7 +3673,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "plugin_conflicts_kind_check": {
+          "name": "plugin_conflicts_kind_check",
+          "value": "\"plugin_conflicts\".\"kind\" in ('agent', 'tool', 'trigger', 'table', 'skill_file')"
+        },
+        "plugin_conflicts_status_check": {
+          "name": "plugin_conflicts_status_check",
+          "value": "\"plugin_conflicts\".\"status\" in ('stem', 'approval', 'open')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.plugin_files": {
@@ -3833,7 +4007,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "plugins_source_check": {
+          "name": "plugins_source_check",
+          "value": "\"plugins\".\"source\" in ('marketplace', 'generated')"
+        },
+        "plugins_layout_check": {
+          "name": "plugins_layout_check",
+          "value": "\"plugins\".\"layout\" in ('claude', 'standard')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.poll_items": {
@@ -4014,7 +4197,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "poll_items_status_check": {
+          "name": "poll_items_status_check",
+          "value": "\"poll_items\".\"status\" in ('baseline', 'started', 'deferred', 'out-of-scope', 'refused')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.polls": {
@@ -4126,7 +4314,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "polls_status_check": {
+          "name": "polls_status_check",
+          "value": "\"polls\".\"status\" in ('calling', 'baseline', 'polled', 'skipped', 'failed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.proposals": {
@@ -4244,7 +4437,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "proposals_status_check": {
+          "name": "proposals_status_check",
+          "value": "\"proposals\".\"status\" in ('draft', 'asked', 'approved', 'declined')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.push_deliveries": {
@@ -4443,7 +4641,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "push_subscriptions_language_check": {
+          "name": "push_subscriptions_language_check",
+          "value": "\"push_subscriptions\".\"language\" in ('en', 'fr')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.questions": {
@@ -4827,7 +5030,20 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "questions_placement_check": {
+          "name": "questions_placement_check",
+          "value": "\"questions\".\"placement\" in ('chat', 'notifications')"
+        },
+        "questions_kind_check": {
+          "name": "questions_kind_check",
+          "value": "\"questions\".\"kind\" in ('question', 'approval', 'consult')"
+        },
+        "questions_status_check": {
+          "name": "questions_status_check",
+          "value": "\"questions\".\"status\" in ('pending', 'answered', 'expired')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.roots": {
@@ -4949,7 +5165,16 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "roots_kind_check": {
+          "name": "roots_kind_check",
+          "value": "\"roots\".\"kind\" in ('user', 'chat', 'schedule', 'event', 'poll')"
+        },
+        "roots_state_check": {
+          "name": "roots_state_check",
+          "value": "\"roots\".\"state\" in ('going', 'paused', 'stopped')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.rows": {
@@ -5591,7 +5816,16 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "runs_source_check": {
+          "name": "runs_source_check",
+          "value": "\"runs\".\"source\" in ('workflow', 'agent')"
+        },
+        "runs_status_check": {
+          "name": "runs_status_check",
+          "value": "\"runs\".\"status\" in ('running', 'waiting', 'succeeded', 'failed')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.schedule_fires": {
@@ -5702,7 +5936,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "schedule_fires_status_check": {
+          "name": "schedule_fires_status_check",
+          "value": "\"schedule_fires\".\"status\" in ('started', 'skipped-overlap', 'refused')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.schedules": {
@@ -6510,7 +6749,28 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "step_runs_status_check": {
+          "name": "step_runs_status_check",
+          "value": "\"step_runs\".\"status\" in ('pending', 'running', 'waiting', 'succeeded', 'failed', 'skipped')"
+        },
+        "step_runs_turn_status_check": {
+          "name": "step_runs_turn_status_check",
+          "value": "\"step_runs\".\"turn_status\" in ('unknown', 'idle', 'running')"
+        },
+        "step_runs_queue_class_check": {
+          "name": "step_runs_queue_class_check",
+          "value": "\"step_runs\".\"queue_class\" in ('person', 'resume', 'new')"
+        },
+        "step_runs_working_not_queued": {
+          "name": "step_runs_working_not_queued",
+          "value": "not (\"step_runs\".\"working\" and \"step_runs\".\"queued_at\" is not null)"
+        },
+        "step_runs_queued_with_class": {
+          "name": "step_runs_queued_with_class",
+          "value": "(\"step_runs\".\"queued_at\" is null) = (\"step_runs\".\"queue_class\" is null)"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.subscription_challenges": {
@@ -6732,7 +6992,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "subscription_enrollments_harness_check": {
+          "name": "subscription_enrollments_harness_check",
+          "value": "\"subscription_enrollments\".\"harness\" in ('claude-code', 'codex')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.tables": {
@@ -7186,7 +7451,24 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "tools_kind_check": {
+          "name": "tools_kind_check",
+          "value": "\"tools\".\"kind\" in ('http', 'runner')"
+        },
+        "tools_transport_check": {
+          "name": "tools_transport_check",
+          "value": "\"tools\".\"transport\" in ('streamable-http', 'sse')"
+        },
+        "tools_auth_check": {
+          "name": "tools_auth_check",
+          "value": "\"tools\".\"auth\" in ('none', 'headers', 'oauth')"
+        },
+        "tools_oauth_status_check": {
+          "name": "tools_oauth_status_check",
+          "value": "\"tools\".\"oauth_status\" in ('authorize', 'connected', 'reauthorize')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.trigger_fires": {
@@ -7297,7 +7579,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "trigger_fires_status_check": {
+          "name": "trigger_fires_status_check",
+          "value": "\"trigger_fires\".\"status\" in ('started', 'skipped-overlap', 'refused')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.triggers": {
@@ -7525,7 +7812,20 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "triggers_kind_check": {
+          "name": "triggers_kind_check",
+          "value": "\"triggers\".\"kind\" in ('manual', 'schedule', 'primitive', 'poll')"
+        },
+        "triggers_concurrency_check": {
+          "name": "triggers_concurrency_check",
+          "value": "\"triggers\".\"concurrency\" in ('parallel', 'one-at-a-time')"
+        },
+        "triggers_built_in_check": {
+          "name": "triggers_built_in_check",
+          "value": "\"triggers\".\"built_in\" in ('review')"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.user": {
