@@ -2,7 +2,7 @@ import { PROTOCOL_VERSION } from "@dispand/runner-protocol";
 import { and, desc, eq, ne, sql } from "drizzle-orm";
 import { agents, polls, triggers } from "../db/schema.ts";
 import { STALE_TICK_MS } from "../engine/scheduler.ts";
-import { base, manager } from "../rpc/context.ts";
+import { managerProcedure } from "../rpc/context.ts";
 import { workspaceRunners } from "../runners/procedures.ts";
 import { visible } from "../triggers/procedures.ts";
 
@@ -12,7 +12,7 @@ import { visible } from "../triggers/procedures.ts";
  * poll triggers whose latest poll failed. Only the workspace's own rows: the tick's age is the one
  * install-wide fact, and `/api/health` already tells it to anyone.
  */
-const status = base.use(manager).handler(async ({ context }) => {
+const status = managerProcedure.handler(async ({ context }) => {
   const { workspaceId } = context.access;
   const since = context.scheduler?.sinceTick();
   // Each enabled poll trigger's latest poll that ended (one under way says nothing yet), among those the person sees.

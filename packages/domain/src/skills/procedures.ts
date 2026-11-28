@@ -8,13 +8,11 @@ import { agentUsingPackage } from "../agents/usage.ts";
 import { agentSkillToolPermissions, plugins, skillFiles, skillFileUpstream, skillPackages, skills as skillsTable, tools as toolsTable } from "../db/schema.ts";
 import { refuseOwnDelete } from "../plugins/overrides.ts";
 import { newId } from "../ids.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { StorableText } from "../workflows/model.ts";
 import { MAX_DESCRIPTION, MAX_FILE_BYTES, MAX_FILES, PLATFORM_SKILL, SKILL_NAME, skillMd, type SkillFile, splitSkillMd, validatePackage } from "./package.ts";
 import { message } from "../messages/index.ts";
 import { uniqueConstraint } from "../db/unique.ts";
-
-const owner = base.use(member);
 
 /** A file of a user-made skill, `path` inside the skill's folder. Bounds beyond these are `validatePackage`'s. */
 const UploadedFile = z.object({
@@ -153,7 +151,7 @@ async function pluginPackage(tx: Tx, workspaceId: string, packageId: string) {
 const FilePath = PackageId.extend({ path: z.string().min(1).max(500) });
 
 /** Sets one file of a plugin's skill: the owner's version of it, or a file of their own. */
-const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 })).handler(async ({ input, context }) => {
+const setFile = memberProcedure.input(FilePath.extend({ base64: UploadedFile.shape.base64 })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const { files } = await pluginPackage(tx, context.access.workspaceId, input.packageId);
     await writeFiles(tx, input.packageId, [...files.filter((f) => f.path !== input.path), { path: input.path, content: Buffer.from(input.base64, "base64") }]);
@@ -162,7 +160,7 @@ const setFile = owner.input(FilePath.extend({ base64: UploadedFile.shape.base64 
 });
 
 /** Removes one file of a plugin's skill; a file of the plugin's stays removed through its updates. */
-const removeFile = owner.input(FilePath).handler(async ({ input, context }) => {
+const removeFile = memberProcedure.input(FilePath).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const { files } = await pluginPackage(tx, context.access.workspaceId, input.packageId);
     if (!files.some((f) => f.path === input.path)) throw new ORPCError("NOT_FOUND", message("skills.fileNotFound"));
@@ -203,7 +201,7 @@ export async function checkFile(tx: Tx, workspaceId: string, packageId: string, 
 }
 
 /** One file's text, for its editor: null for a file that isn't text. */
-const readFile = owner.input(FilePath).handler(async ({ input, context }) => {
+const readFile = memberProcedure.input(FilePath).handler(async ({ input, context }) => {
   await find(context.db, context.access.workspaceId, input.packageId);
   const [file] = await context.db
     .select({ content: skillFiles.content })
@@ -222,7 +220,7 @@ function refuseReservedName(name: string) {
   if (name === PLATFORM_SKILL) throw new ORPCError("CONFLICT", message("skills.nameTaken", { name }));
 }
 
-const create = owner.input(Fields).handler(async ({ input, context }) => {
+const create = memberProcedure.input(Fields).handler(async ({ input, context }) => {
   refuseReservedName(input.name);
   const files = userFiles(input, decoded(input.files ?? []));
   const { skills } = validatePackage(files);
@@ -245,7 +243,7 @@ const create = owner.input(Fields).handler(async ({ input, context }) => {
   return { packageId };
 });
 
-const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ input, context }) => {
+const update = memberProcedure.input(Fields.extend(PackageId.shape)).handler(async ({ input, context }) => {
   const { packageId, ...fields } = input;
   await context.db
     .transaction(async (tx) => {
@@ -288,7 +286,7 @@ const update = owner.input(Fields.extend(PackageId.shape)).handler(async ({ inpu
   return { packageId };
 });
 
-const remove = owner.input(PackageId).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(PackageId).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const row = await find(tx, context.access.workspaceId, input.packageId, true);
     await refuseOwnDelete(tx, row.pluginId);
@@ -321,12 +319,12 @@ async function views(db: Db, rows: PackageRow[]) {
   }));
 }
 
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db.select().from(skillPackages).where(eq(skillPackages.workspaceId, context.access.workspaceId)).orderBy(asc(skillPackages.name));
   return views(context.db, rows);
 });
 
-const get = owner.input(PackageId).handler(async ({ input, context }) => {
+const get = memberProcedure.input(PackageId).handler(async ({ input, context }) => {
   const row = await find(context.db, context.access.workspaceId, input.packageId);
   const [view] = await views(context.db, [row]);
   // Beside the plugin's own files: what of a plugin's skill is its owner's change.

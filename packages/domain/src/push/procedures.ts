@@ -2,11 +2,10 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { pushSubscriptions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { base, member, signedIn } from "../rpc/context.ts";
+import { memberProcedure, signedInProcedure } from "../rpc/context.ts";
 import { subscriptionKeysAad, vapidKeys } from "./keys.ts";
 
 // A person's devices are theirs, whichever workspace they open.
-const owner = base.use(member);
 
 /** "Chrome on Android": what the owner reads to tell their devices apart, from the user agent. */
 export function deviceLabel(userAgent: string): string {
@@ -42,7 +41,7 @@ const SubscribeInput = z.object({
 });
 
 /** Allows this browser: items asked from now on reach it. Again for a known endpoint, its keys, label and language are refreshed, not its start. */
-const subscribe = owner.input(SubscribeInput).handler(async ({ input, context }) => {
+const subscribe = memberProcedure.input(SubscribeInput).handler(async ({ input, context }) => {
   const keys = context.secrets.seal(JSON.stringify(input.keys), subscriptionKeysAad(input.endpoint));
   const label = deviceLabel(context.headers.get("user-agent") ?? "");
   await context.db
@@ -56,15 +55,12 @@ const subscribe = owner.input(SubscribeInput).handler(async ({ input, context })
 });
 
 /** Stops pushes to this browser (signing out, or turned off): any signed-in person, for their own devices only, so sign-out always revokes. */
-const unsubscribe = base
-  .use(signedIn)
-  .input(z.object({ endpoint: z.string().max(2048) }))
-  .handler(async ({ input, context }) => {
-    await context.db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.ownerId, context.ownerId), eq(pushSubscriptions.endpoint, input.endpoint)));
-  });
+const unsubscribe = signedInProcedure.input(z.object({ endpoint: z.string().max(2048) })).handler(async ({ input, context }) => {
+  await context.db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.ownerId, context.ownerId), eq(pushSubscriptions.endpoint, input.endpoint)));
+});
 
 /** The key a browser subscribes with, and the owner's allowed devices (never their endpoints or keys). */
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const { publicKey } = await vapidKeys(context.db, context.secrets);
   const devices = await context.db
     .select({ id: pushSubscriptions.id, label: pushSubscriptions.label, language: pushSubscriptions.language, createdAt: pushSubscriptions.createdAt })

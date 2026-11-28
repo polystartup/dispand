@@ -5,13 +5,13 @@ import { recordAudit } from "../audit/record.ts";
 import type { Db, Tx } from "../db/client.ts";
 import { organizationMembers, organizations, user, workspaceInvitations, workspaceMembers, workspaces } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
-import { base, signedIn } from "../rpc/context.ts";
+import { signedInProcedure } from "../rpc/context.ts";
 import { inScope } from "../db/scope.ts";
 import { authorize, listMine } from "./authorize.ts";
 import { refuseOrganization } from "./gate.ts";
 import { endPersonSubscriptions } from "../runners/subscriptions.ts";
 
-export const person = base.use(signedIn).use(async ({ context, next }) => {
+export const person = signedInProcedure.use(async ({ context, next }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   return next();
 });

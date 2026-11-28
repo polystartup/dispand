@@ -4,15 +4,13 @@ import { z } from "zod";
 import type { Db } from "../db/client.ts";
 import { agents, memories } from "../db/schema.ts";
 import { ID as MAX_ID } from "@dispand/runner-protocol";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { type MemoryAuthor, MemoryEntryShape } from "./model.ts";
 import { acceptMemory, memoryIndex, NOT_FOUND, type Refusal, removeMemoryById, restoreMemory, revertMemory, scopeExists, writeMemory } from "./store.ts";
 import { external, message } from "../messages/index.ts";
 
 // The owner's memory pages: every scope's entries, shown and written by a person.
 // Not tools: agents get their own (`memory_read`, `memory_add`...), gated by their targets.
-
-const owner = base.use(member);
 
 const ID = z.string().min(1).max(MAX_ID);
 
@@ -80,7 +78,7 @@ async function refuseOthersAssistantEntry(context: Caller, id: string) {
   if (row) await refuseOthersAssistant(context, row);
 }
 
-const list = owner.input(Scope).handler(async ({ input, context }) => {
+const list = memberProcedure.input(Scope).handler(async ({ input, context }) => {
   const where = input;
   await refuseOthersAssistant(context, where);
   const workspaceId = context.access.workspaceId;
@@ -118,7 +116,7 @@ const list = owner.input(Scope).handler(async ({ input, context }) => {
 });
 
 /** Adds the entry at its path, or changes the one there: the person becomes its author. */
-const write = owner
+const write = memberProcedure
   .input(z.object({ where: Scope, entry: Entry }))
   .handler(
     async ({ input, context }) => (
@@ -127,7 +125,7 @@ const write = owner
     ),
   );
 
-const remove = owner
+const remove = memberProcedure
   .input(z.object({ id: ID }))
   .handler(
     async ({ input, context }) => (
@@ -136,7 +134,7 @@ const remove = owner
     ),
   );
 
-const accept = owner
+const accept = memberProcedure
   .input(z.object({ id: ID }))
   .handler(
     async ({ input, context }) => (
@@ -145,7 +143,7 @@ const accept = owner
     ),
   );
 
-const revert = owner
+const revert = memberProcedure
   .input(z.object({ id: ID }))
   .handler(
     async ({ input, context }) => (
@@ -154,7 +152,7 @@ const revert = owner
     ),
   );
 
-const restore = owner
+const restore = memberProcedure
   .input(z.object({ id: ID }))
   .handler(
     async ({ input, context }) => (

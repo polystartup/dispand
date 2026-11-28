@@ -1,3 +1,4 @@
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { createHash } from "node:crypto";
 import { ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
@@ -37,7 +38,7 @@ import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { movesNativePin, nativePin, storePluginFiles } from "./runner-servers.ts";
 import { uniqueConstraint } from "../db/unique.ts";
 import { canonicalHash } from "../platform/approvals.ts";
-import { reader, writer, acted, chosenSkills, PluginRow } from "./common.ts";
+import { acted, chosenSkills, PluginRow } from "./common.ts";
 import { readEntry, packageName, EntryRef, findMarketplace, findEntry, discover } from "./marketplace-procedures.ts";
 import { uninstallPreview, uninstall } from "./uninstall-procedures.ts";
 import { tableChangesOf, applyTableChange, updatePreview, update, handToStem, approveNative, nativePreview } from "./update-procedures.ts";
@@ -55,7 +56,7 @@ function reviewToken(sha: string, contents: PluginContents, native: string | nul
     .digest("hex");
 }
 
-const preview = reader.input(EntryRef).handler(async ({ input, context }) => {
+const preview = memberProcedure.input(EntryRef).handler(async ({ input, context }) => {
   const market = await findMarketplace(context.db, context.access.workspaceId, input.marketplaceId);
   const { contents, sha, nativeRoot, nativeFiles } = await readEntry(market, findEntry(market, input.entryName), !!context.gitFileUrls);
   const runsNatively = nativeReview(undefined, nativeFiles);
@@ -98,7 +99,7 @@ const unique = (names: string[]) => [...new Set(names)];
  * HTTP tools (settings sealed), agents on the chosen harness with the plugin's imported skills and
  * tools. Everything is stored in one transaction; the tools' actions are listed afterwards.
  */
-export const install = writer.input(InstallInput).handler(({ input, context }) =>
+export const install = managerProcedure.input(InstallInput).handler(({ input, context }) =>
   acted("install", undefined, async () => {
     const picked = { skills: unique(input.skills), mcpServers: unique(input.mcpServers), agents: unique(input.agents) };
     const setupPicked = !!input.setup && Object.values(input.setup).some((v) => Array.isArray(v) && v.length > 0);
@@ -328,7 +329,7 @@ function definitionsView(row: PluginRow, named: Record<CreatedKind, Named[]>) {
 /** `a` and then those of `b` it doesn't hold, by id. */
 export const merged = (a: Named[], b: Named[]) => [...a, ...b.filter((n) => !a.some((m) => m.id === n.id))];
 
-export const list = reader.handler(async ({ context }) => {
+export const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db.select().from(pluginsTable).where(eq(pluginsTable.workspaceId, context.access.workspaceId)).orderBy(asc(pluginsTable.name));
   const ids = rows.map((r) => r.id);
   const packages = ids.length ? await context.db.select().from(skillPackages).where(inArray(skillPackages.pluginId, ids)) : [];
@@ -427,7 +428,7 @@ const SetupInput = z.object({ id: z.string(), pick: SetupPick });
 const setupReview = (items: unknown) => canonicalHash(items);
 
 /** The items `setUp` would make now, in words as a proposal shows them, and what can't be made yet. */
-const setupPreview = reader.input(SetupInput).handler(async ({ input, context }) => {
+const setupPreview = memberProcedure.input(SetupInput).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.access.workspaceId, input.id, input.pick);
   return { ...(await itemsView(context.db, context.actorId, setup.items)), waiting: setup.waiting, reviewed: setupReview(setup.items) };
 });
@@ -436,7 +437,7 @@ const setupPreview = reader.input(SetupInput).handler(async ({ input, context })
  * Sets up the definitions picked: the same items an approved proposal would make, made by the
  * owner, who is the person approving. Stops at the first refusal; the next run resumes.
  */
-const setUp = writer.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
+const setUp = managerProcedure.input(SetupInput.extend({ reviewed: z.string().length(64) })).handler(async ({ input, context }) => {
   const setup = await setupItems(context.db, context.access.workspaceId, input.id, input.pick);
   if (setupReview(setup.items) !== input.reviewed) throw new ORPCError("CONFLICT", message("plugins.setup.changed"));
   const { outcomes } = await runItemsAsOwner(context, input.id, setup.items);
@@ -447,7 +448,7 @@ const setUp = writer.input(SetupInput.extend({ reviewed: z.string().length(64) }
  * Puts a field of a plugin's agent or tool back to the plugin's value, through the element's own
  * update, so every check of an ordinary change applies (a tool sent back to another origin loses its headers).
  */
-const resetOverride = writer
+const resetOverride = managerProcedure
   .input(z.object({ kind: z.enum(["agent", "tool", "trigger", "skill"]), id: z.string().max(64), field: z.string().max(600) }))
   .handler(async ({ input, context }) => {
     const { kind, id, field } = input;
@@ -488,7 +489,7 @@ const resetOverride = writer
 const ElementRef = z.object({ kind: z.enum(["agent", "tool", "trigger", "skill_file"]), id: z.string().max(64) });
 
 /** The conflicts of one of a plugin's elements: with Stem, waiting for the owner's Approval, or theirs again. */
-export const conflicts = reader.input(ElementRef).handler(async ({ input, context }) => {
+export const conflicts = memberProcedure.input(ElementRef).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const rows = await context.db
     .select()
@@ -515,7 +516,7 @@ export const conflicts = reader.input(ElementRef).handler(async ({ input, contex
  * The owner's choice on a conflict: on Stem's merged value, accept or decline it; on one that is
  * theirs again, keep their value, take the plugin's, or hand it to Stem once more.
  */
-const resolveConflict = writer
+const resolveConflict = managerProcedure
   .input(z.object({ id: z.string().max(64), choice: z.enum(["accept", "decline", "mine", "plugin", "stem"]), reviewed: z.string().length(64) }))
   .handler(async ({ input, context }) => {
     if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));

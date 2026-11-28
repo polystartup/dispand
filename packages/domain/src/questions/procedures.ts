@@ -11,11 +11,9 @@ import { jobAgentNameSql } from "../jobs/agent-name.ts";
 import { proposalView } from "../platform/proposals.ts";
 import { approvalView, PLUGIN_UPDATE } from "../plugins/resolve.ts";
 import { message } from "../messages/index.ts";
-import { base, inStreamScope, member, untilRefused } from "../rpc/context.ts";
+import { inStreamScope, untilRefused, memberProcedure } from "../rpc/context.ts";
 import { authorize } from "../workspace/authorize.ts";
 import { nodesOf, type WorkflowDef } from "../workflows/model.ts";
-
-const owner = base.use(member);
 
 /** Questions of the workspace's runs. */
 const ofWorkspace = (db: Db, workspaceId: string) =>
@@ -123,7 +121,7 @@ const agentInbox = (db: Db, workspaceId: string, agentId: string) =>
  * (answered or expired), each with its answer, who gave it and when. With `agentId`, that agent's
  * inbox of the caller's workspace instead, read-only: everything in a workspace is shared.
  */
-const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId: z.string().optional() })).handler(async ({ input, context }) => {
+const list = memberProcedure.input(z.object({ status: z.enum(["pending", "all"]), agentId: z.string().optional() })).handler(async ({ input, context }) => {
   if (input.agentId) {
     // The workspace's agents, but other people's Assistants, which stay theirs.
     const [agent] = await context.db
@@ -227,10 +225,10 @@ const list = owner.input(z.object({ status: z.enum(["pending", "all"]), agentId:
   return out;
 });
 
-const countPending = owner.handler(({ context }) => pendingCount(context.db, context.actorId, context.access.workspaceId));
+const countPending = memberProcedure.handler(({ context }) => pendingCount(context.db, context.actorId, context.access.workspaceId));
 
 /** The pending count as it is, then again after every change while the client listens. */
-const stream = owner.handler(async function* ({ context, signal }) {
+const stream = memberProcedure.handler(async function* ({ context, signal }) {
   const { organizationId, workspaceId } = context.access;
   // Its workspace's changes only, subscribed before the first count is read, so no change falls between them.
   const changes = context.engine.questionChanges.subscribe(workspaceId, { signal });
@@ -250,7 +248,7 @@ const stream = owner.handler(async function* ({ context, signal }) {
   }
 });
 
-const answer = owner.input(z.object({ questionId: z.string(), answer: Answer })).handler(async ({ input, context }) => {
+const answer = memberProcedure.input(z.object({ questionId: z.string(), answer: Answer })).handler(async ({ input, context }) => {
   const [q] = await context.db
     .select()
     .from(questionsTable)
@@ -279,7 +277,7 @@ const answer = owner.input(z.object({ questionId: z.string(), answer: Answer }))
  * (`Engine.consent`): theirs alone to give, once, for that answer. Anyone else, or an answer not
  * waiting for them, gets NOT_FOUND and records nothing.
  */
-const consent = owner.input(z.object({ questionId: z.string() })).handler(async ({ input, context }) => {
+const consent = memberProcedure.input(z.object({ questionId: z.string() })).handler(async ({ input, context }) => {
   if (!(await context.engine.consent(input.questionId, context.actorId, context.access.workspaceId)))
     throw new ORPCError("NOT_FOUND", message("questions.notFound"));
 });

@@ -5,7 +5,7 @@ import { z } from "zod";
 import { harnesses, runners as runnersTable } from "../db/schema.ts";
 import type { Db } from "../db/client.ts";
 import type { Auth } from "../auth.ts";
-import { base, manager, member } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { newId } from "../ids.ts";
 import { type RunnerHub, RunnerRequestFailed } from "./hub.ts";
 import { createRunner, revokeRunner } from "./pairing.ts";
@@ -13,12 +13,9 @@ import { subscriptionProcedures } from "./subscriptions.ts";
 import { workspacePlugin, workspaceSkills } from "./workspace-plugin.ts";
 import { message } from "../messages/index.ts";
 
-const reader = base.use(member);
-const writer = base.use(manager);
-
 const Name = z.string().trim().min(1).max(100);
 
-const create = writer.input(z.object({ name: Name })).handler(async ({ input, context }) => {
+const create = managerProcedure.input(z.object({ name: Name })).handler(async ({ input, context }) => {
   const { runnerId, pairingCode } = await createRunner(context.db, context.actorId, input.name, context.access);
   const server = context.auth.options.baseURL;
   // The code goes in the environment, never in an argv another local user could read in `ps`.
@@ -60,7 +57,7 @@ export async function workspaceRunners(context: { db: Db; hub: RunnerHub; auth: 
   );
 }
 
-const list = reader.handler(async ({ context }) => (await workspaceRunners(context)).map(({ runner }) => runner));
+const list = memberProcedure.handler(async ({ context }) => (await workspaceRunners(context)).map(({ runner }) => runner));
 
 /** The workspace's live runner, or NOT_FOUND. */
 async function requireRunner(context: { db: Db; access: { workspaceId: string } }, runnerId: string) {
@@ -72,7 +69,7 @@ async function requireRunner(context: { db: Db; access: { workspaceId: string } 
   return runner;
 }
 
-const update = writer.input(z.object({ runnerId: z.string(), name: Name })).handler(async ({ input, context }) => {
+const update = managerProcedure.input(z.object({ runnerId: z.string(), name: Name })).handler(async ({ input, context }) => {
   const [row] = await context.db
     .update(runnersTable)
     .set({ name: input.name })
@@ -81,7 +78,7 @@ const update = writer.input(z.object({ runnerId: z.string(), name: Name })).hand
   if (!row) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
 });
 
-const revoke = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
+const revoke = managerProcedure.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   if (!(await revokeRunner(context.db, context.actorId, input.runnerId, context.access))) throw new ORPCError("NOT_FOUND", message("tools.runnerNotFound"));
   context.hub.disconnect(input.runnerId);
   // Its open sessions can't come back: fail them rather than leave their runs waiting (in the runner's workspace, as all of this).
@@ -93,7 +90,7 @@ const revoke = writer.input(z.object({ runnerId: z.string() })).handler(async ({
  * registered it, since what they install runs under that machine's account. A workspace's verified
  * plugins and skills go through `workspacePlugin`, for any manager.
  */
-const plugins = writer.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
+const plugins = managerProcedure.input(z.object({ runnerId: z.string(), operation: PluginOperation })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
   if (runner.ownerId !== context.actorId) throw new ORPCError("FORBIDDEN", message("runners.registrantOnly"));
   if ("targets" in input.operation) {
@@ -111,7 +108,7 @@ const plugins = writer.input(z.object({ runnerId: z.string(), operation: PluginO
   }
 });
 
-const refreshClis = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
+const refreshClis = managerProcedure.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
   try {
     const reply = await context.hub.refreshClis(runner.id, newId("req"));
@@ -122,7 +119,7 @@ const refreshClis = writer.input(z.object({ runnerId: z.string() })).handler(asy
   }
 });
 
-const installUpdate = writer.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
+const installUpdate = managerProcedure.input(z.object({ runnerId: z.string() })).handler(async ({ input, context }) => {
   const runner = await requireRunner(context, input.runnerId);
   if (!(await context.hub.updates.request(runner.id))) throw new ORPCError("CONFLICT", message("runners.noUpdate"));
 });

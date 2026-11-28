@@ -7,7 +7,7 @@ import { McpServerName } from "@dispand/runner-protocol";
 import { tools as toolsTable } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message, type MessageKey } from "../messages/index.ts";
-import { base, manager, member } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { CATALOG, catalogEntry, declaredActions, defaultDisabled, fillHeaders, MissingSetting, runnerSnippet, searchCatalog } from "./catalog.ts";
 import { AUTHS, TRANSPORTS } from "./mcp.ts";
 import { oauthStep, oauthStore } from "./oauth-store.ts";
@@ -45,9 +45,6 @@ import {
   createTool,
 } from "./store.ts";
 
-const reader = base.use(member);
-const writer = base.use(manager);
-
 const RunnerTool = z.object({
   kind: z.literal("runner"),
   name: Name,
@@ -84,7 +81,7 @@ async function createRunnerTool(context: Pick<InitialContext, "db" | "hub"> & Ad
   return view(context.db, await refreshRunnerActions(context.db, context.hub, row!));
 }
 
-const create = writer
+const create = managerProcedure
   .input(
     z.union([
       RunnerTool,
@@ -102,7 +99,7 @@ const create = writer
  * agent may propose (a person approves the address before anything is fetched from it); the
  * owner enters the server's headers afterwards, on the tool's page.
  */
-const add = writer
+const add = managerProcedure
   .input(
     z.strictObject({
       name: Name,
@@ -116,7 +113,7 @@ const add = writer
   .handler(({ input, context }) => createTool(context, { ...input, headers: {} }));
 
 /** The catalog's entries, searched by name and description. Templates and setting names only: no value. */
-const catalog = reader.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
+const catalog = memberProcedure.input(z.object({ query: z.string().max(100).optional() })).handler(({ input }) => searchCatalog(input.query));
 
 type HttpEntry = Extract<(typeof CATALOG)[number], { kind: "http" }>;
 
@@ -137,7 +134,7 @@ const fromEntry = (entry: HttpEntry, name: string | undefined) => ({
  * (and sealed); a runner entry only gives the snippet to add to the runner's config, with
  * placeholders, since its keys stay on the owner's machine.
  */
-const installFromCatalog = writer
+const installFromCatalog = managerProcedure
   .input(
     z.object({
       catalogId: z.string().max(64),
@@ -168,7 +165,7 @@ const installFromCatalog = writer
  * its owner signs in on the tool's page (`signInPath`): enters its settings, or connects it. A
  * runner entry is refused when proposed, with the snippet its owner adds on their machine.
  */
-const addFromCatalog = writer
+const addFromCatalog = managerProcedure
   .input(
     z.strictObject({
       catalogId: z
@@ -197,7 +194,7 @@ const addFromCatalog = writer
  * Fills a catalog tool's settings (its key), sealed in its headers as its entry says, then
  * lists its actions: the first listing that succeeds replaces the ones it was added with.
  */
-const fillSettings = writer
+const fillSettings = managerProcedure
   .input(
     z.object({
       id: z.string(),
@@ -281,7 +278,7 @@ async function updateRunnerTool(
   return view(context.db, moved ? await refreshRunnerActions(context.db, context.hub, row) : row);
 }
 
-const update = writer
+const update = managerProcedure
   .input(
     z.object({
       id: z.string(),
@@ -366,7 +363,7 @@ const update = writer
  * supports neither client metadata documents nor registration; null removes it. The flow's
  * `state` and verifier stay sealed here, for the callback.
  */
-const authorize = reader
+const authorize = memberProcedure
   .input(
     z.object({
       id: z.string(),
@@ -415,7 +412,7 @@ const authorize = reader
     });
   });
 
-const refresh = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const refresh = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await refreshAny(context, await find(context.db, context.access.workspaceId, input.id));
   // Under strict permissions a new listing (or a failed one) can end grants: running sessions lose them too.
   if (await strictPermissionsOf(context.db, context.access.workspaceId)) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
@@ -423,7 +420,7 @@ const refresh = reader.input(z.object({ id: z.string() })).handler(async ({ inpu
 });
 
 // Agents, skill packages and Tool steps hold a tool: `toolHolder`.
-const remove = writer.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = managerProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const [row] = await tx
       .select({ id: toolsTable.id, pluginId: toolsTable.pluginId })
@@ -438,7 +435,7 @@ const remove = writer.input(z.object({ id: z.string() })).handler(async ({ input
   });
 });
 
-const list = reader.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(toolsTable)
@@ -447,18 +444,18 @@ const list = reader.handler(async ({ context }) => {
   return views(context.db, rows);
 });
 
-const get = reader
+const get = memberProcedure
   .input(z.object({ id: z.string() }))
   .handler(async ({ input, context }) => view(context.db, await find(context.db, context.access.workspaceId, input.id)));
 
 /** Each action of a tool with whether a poll may read it, and why not. */
-const pollable = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const pollable = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.access.workspaceId, input.id);
   return (await pollableActions(context.db, row.workspaceId, row.id))!;
 });
 
 /** Sets the actions polls may read (the owner's choice; an action an agent asks before using stays unpolled). */
-const setPollable = reader.input(z.object({ id: z.string(), actions: z.array(z.string().max(200)).max(200) })).handler(async ({ input, context }) => {
+const setPollable = memberProcedure.input(z.object({ id: z.string(), actions: z.array(z.string().max(200)).max(200) })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.access.workspaceId, input.id);
   const known = new Set(row.actions.map((a) => a.name));
   const unknown = input.actions.find((a) => !known.has(a));
@@ -472,27 +469,29 @@ const setPollable = reader.input(z.object({ id: z.string(), actions: z.array(z.s
 });
 
 /** Global availability is an owner's choice, independent of each agent's saved permissions. */
-const setActionEnabled = reader.input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
-  const row = await context.db.transaction(async (tx) => {
-    const [tool] = await tx
-      .select()
-      .from(toolsTable)
-      .where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.workspaceId, context.access.workspaceId)))
-      .for("update");
-    if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
-    if (tool.disabled.includes(input.action) === !input.enabled) return tool;
-    const disabled = tool.disabled.filter((name) => name !== input.action);
-    if (!input.enabled) disabled.push(input.action);
-    const [updated] = await tx
-      .update(toolsTable)
-      .set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` })
-      .where(eq(toolsTable.id, tool.id))
-      .returning();
-    return updated!;
+const setActionEnabled = memberProcedure
+  .input(z.object({ toolId: z.string(), action: z.string(), enabled: z.boolean() }))
+  .handler(async ({ input, context }) => {
+    const row = await context.db.transaction(async (tx) => {
+      const [tool] = await tx
+        .select()
+        .from(toolsTable)
+        .where(and(eq(toolsTable.id, input.toolId), eq(toolsTable.workspaceId, context.access.workspaceId)))
+        .for("update");
+      if (!tool?.actions.some((a) => a.name === input.action)) throw new ORPCError("NOT_FOUND", message("tools.notFound"));
+      if (tool.disabled.includes(input.action) === !input.enabled) return tool;
+      const disabled = tool.disabled.filter((name) => name !== input.action);
+      if (!input.enabled) disabled.push(input.action);
+      const [updated] = await tx
+        .update(toolsTable)
+        .set({ disabled, permissionRevision: sql`${toolsTable.permissionRevision} + 1` })
+        .where(eq(toolsTable.id, tool.id))
+        .returning();
+      return updated!;
+    });
+    if (!input.enabled) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
+    return view(context.db, row);
   });
-  if (!input.enabled) await context.engine.narrowWorkspaceSessions(context.access.workspaceId, context.db);
-  return view(context.db, row);
-});
 
 export const tools = {
   create,

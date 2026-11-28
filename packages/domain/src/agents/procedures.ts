@@ -20,7 +20,7 @@ import { MEMORY_TARGETS } from "../memory/model.ts";
 import { BUNDLES, MAX_AGENT_TABLES, type TableScope } from "../platform/bundles.ts";
 import { ModelName } from "../harnesses/procedures.ts";
 import { newId } from "../ids.ts";
-import { base, manager, member } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { recordAudit } from "../audit/record.ts";
 import { MAX_SESSION_NATIVE_PLUGINS } from "../engine/tooling.ts";
 import { enabledActions, defaultUnasked } from "../tools/catalog.ts";
@@ -36,8 +36,6 @@ import { FROZEN_REVISION, heldUnasked, Permission, setPermission, strictTargets,
 import { effectiveTools } from "./tools.ts";
 import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
 import { agentValues } from "../plugins/update.ts";
-
-const owner = base.use(member);
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
@@ -378,7 +376,7 @@ async function withSkillsAndTools(db: Db, row: Row) {
   };
 }
 
-const create = owner.input(AgentFields).handler(async ({ input, context }) => {
+const create = memberProcedure.input(AgentFields).handler(async ({ input, context }) => {
   const { skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, escalations: people, ...fields } = input;
   const harness = await requireHarness(context.db, context.access.workspaceId, fields.harnessId);
   const dataTables = await ownTables(context.db, context.access.workspaceId, input.dataTables);
@@ -433,7 +431,7 @@ const create = owner.input(AgentFields).handler(async ({ input, context }) => {
   return { ...(await withPlugins(context.db, [row]))[0]!, ...(await sessionLeftOut(context.db, row.id, harness.runnerId)) };
 });
 
-const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
+const update = memberProcedure.input(AgentFields.extend({ id: z.string() })).handler(async ({ input, context }) => {
   const { id, skillPackageIds, toolIds, toolPermissions, bundles, selfLearning, consults: entries, escalations: people, ...fields } = input;
   const current = await find(context.db, context.access.workspaceId, context.actorId, id);
   const harness = await requireHarness(context.db, context.access.workspaceId, fields.harnessId);
@@ -489,7 +487,7 @@ const update = owner.input(AgentFields.extend({ id: z.string() })).handler(async
   return { ...(await withPlugins(context.db, [row]))[0]!, ...(await sessionLeftOut(context.db, id, harness.runnerId)) };
 });
 
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, input.id, { kind: "delete" });
@@ -501,7 +499,7 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   context.engine.settled(out);
 });
 
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(agentsTable)
@@ -510,7 +508,7 @@ const list = owner.handler(async ({ context }) => {
   return withPlugins(context.db, rows);
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   return withSkillsAndTools(context.db, await find(context.db, context.access.workspaceId, context.actorId, input.id));
 });
 
@@ -519,7 +517,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
  * Run, Ask or Off: a tool it chose as it chose it, one that only comes with its skills as
  * remembered for them (`agent_skill_tool_permissions`, for the tool's current target).
  */
-const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const toolAsk = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   const rows = await context.db
     .select({ tool: toolsTable, unasked: agentTools.unasked, denied: agentTools.denied, strictTarget: agentTools.strictTarget })
@@ -587,7 +585,7 @@ const toolAsk = owner.input(z.object({ id: z.string() })).handler(async ({ input
  * Sets one action to Run, Ask or Off. A Job reaches this write only through an approved proposal;
  * the owner changes it directly on the agent page.
  */
-const setToolPermission = owner
+const setToolPermission = memberProcedure
   .input(z.object({ agentId: z.string(), toolId: z.string(), action: z.string(), permission: Permission }))
   .handler(async ({ input, context }) => {
     // The caller's agent, as the other agent procedures find it; the write then checks its workspace.
@@ -602,8 +600,7 @@ const setToolPermission = owner
  * mount each one whole, its hooks and servers running in their worker. A manager's choice, never a
  * Job's, even an approved one's; each plugin must be one of the workspace's, read from a marketplace.
  */
-const setNativePlugins = base
-  .use(manager)
+const setNativePlugins = managerProcedure
   .input(
     z.object({
       agentId: z.string().max(64),
@@ -647,19 +644,19 @@ const setNativePlugins = base
   });
 
 /** The native plugins granted to the agent, by id. */
-const nativePlugins = owner.input(z.object({ agentId: z.string().max(64) })).handler(async ({ input, context }) => {
+const nativePlugins = memberProcedure.input(z.object({ agentId: z.string().max(64) })).handler(async ({ input, context }) => {
   const agent = await find(context.db, context.access.workspaceId, context.actorId, input.agentId);
   const rows = await context.db.select({ pluginId: agentNativePlugins.pluginId }).from(agentNativePlugins).where(eq(agentNativePlugins.agentId, agent.id));
   return rows.map((r) => r.pluginId).sort();
 });
 
 /** Native CLI permissions are managed by the owner, outside the agent's general edit form. */
-const cliRules = owner.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
+const cliRules = memberProcedure.input(z.object({ id: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   return (await find(context.db, context.access.workspaceId, context.actorId, input.id)).cliRules;
 });
 
-const removeCliRule = owner
+const removeCliRule = memberProcedure
   .input(z.object({ id: z.string().max(64), cli: z.enum(["claude-code", "codex"]), rule: StorableText(MAX_CLI_RULE_LENGTH).min(1) }))
   .handler(async ({ input, context }) => {
     if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
@@ -680,15 +677,15 @@ const removeCliRule = owner
   });
 
 /** The workspace's members, who an agent may be set to ask: each with whether they wrote a profile, never its text. */
-const people = owner.handler(async ({ context }) =>
+const people = memberProcedure.handler(async ({ context }) =>
   (await members(context.db, context.access.workspaceId)).map(({ id, name, description }) => ({ id, name, profile: !!description })),
 );
 
 /** The person's Assistant in the workspace and its chat trigger, or null when they have none there yet. */
-const assistant = owner.handler(({ context }) => findAssistant(context.db, context.actorId, context.access.workspaceId));
+const assistant = memberProcedure.handler(({ context }) => findAssistant(context.db, context.actorId, context.access.workspaceId));
 
 /** Makes the person's Assistant in the workspace on this harness, or gives the one there is (left on its own harness). */
-const ensure = owner.input(z.object({ harnessId: z.string() })).handler(async ({ input, context }) => {
+const ensure = memberProcedure.input(z.object({ harnessId: z.string() })).handler(async ({ input, context }) => {
   await requireHarness(context.db, context.access.workspaceId, input.harnessId);
   return ensureAssistant(context.db, context.actorId, input.harnessId, context.access.workspaceId);
 });

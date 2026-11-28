@@ -6,13 +6,11 @@ import { agents, eventFires, fields, plugins, pollItems, polls, tables, triggerF
 import { assistantGuard, type AgentChange } from "../agents/builtin.ts";
 import { newId } from "../ids.ts";
 import { message, stored } from "../messages/index.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { pollProblem } from "../tools/pollable.ts";
 import { cronProblem, nextFireAfter } from "../workflows/schedule.ts";
 import { overriddenAfter, refuseOwnDelete, sameValue } from "../plugins/overrides.ts";
 import { canonicalJson, Concurrency, JOB, RateCap, TriggerConfig, TriggerFields } from "./model.ts";
-
-const owner = base.use(member);
 
 /** The workspace's agents a person sees: all but other people's Assistants, which stay their own. */
 export const visible = (workspaceId: string, actorId: string) =>
@@ -202,7 +200,7 @@ async function find(db: Db, workspaceId: string, actorId: string, id: string) {
   return row;
 }
 
-const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handler(async ({ input, context }) => {
+const create = memberProcedure.input(TriggerFields.extend({ agentId: z.string() })).handler(async ({ input, context }) => {
   const agent = await requireAgent(context.db, context.access.workspaceId, context.actorId, input.agentId);
   await checkConfig(context.db, agent, input.config);
   checkInstructions(input.config, input.instructions);
@@ -234,7 +232,7 @@ const create = owner.input(TriggerFields.extend({ agentId: z.string() })).handle
   return view(context.db, row!, !!context.job);
 });
 
-const update = owner
+const update = memberProcedure
   .input(
     z.object({
       id: z.string(),
@@ -308,14 +306,14 @@ const update = owner
     return view(context.db, row, !!context.job);
   });
 
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await find(context.db, context.access.workspaceId, context.actorId, input.id);
   await refuseOwnDelete(context.db, row.pluginId);
   await guard(context.db, row.agentId, { kind: "trigger", triggerId: row.id, delete: true });
   await context.db.delete(triggersTable).where(eq(triggersTable.id, input.id));
 });
 
-const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ input, context }) => {
+const list = memberProcedure.input(z.object({ agentId: z.string() })).handler(async ({ input, context }) => {
   await requireAgent(context.db, context.access.workspaceId, context.actorId, input.agentId);
   const rows = await context.db
     .select()
@@ -325,7 +323,7 @@ const list = owner.input(z.object({ agentId: z.string() })).handler(async ({ inp
   return Promise.all(rows.map((row) => view(context.db, row, !!context.job)));
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   return view(context.db, await find(context.db, context.access.workspaceId, context.actorId, input.id), !!context.job);
 });
 

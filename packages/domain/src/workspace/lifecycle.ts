@@ -8,7 +8,7 @@ import { organizationMembers, organizations, workspaces } from "../db/schema.ts"
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { seedMarketplaces } from "../plugins/marketplace-procedures.ts";
-import { base, manager, orgOwner } from "../rpc/context.ts";
+import { managerProcedure, orgOwnerProcedure } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
 import { authorizeOrganization } from "./authorize.ts";
 
@@ -36,46 +36,40 @@ export async function bootstrapOrganization(
  * built-in marketplaces in its own. The install's limit (`dispand_workspace_limit()`) may refuse it,
  * with its message.
  */
-const create = base
-  .use(orgOwner)
-  .input(z.object({ name: DisplayName }))
-  .handler(async ({ context, input }) => {
-    const { organizationId } = context.access;
-    const workspaceId = newId("ws");
-    await context.db.transaction(async (tx) => {
-      if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
-      await tx.insert(workspaces).values({ id: workspaceId, organizationId, name: input.name });
-      await recordAudit(tx, {
-        workspaceId,
-        ownerId: context.ownerId,
-        actor: { type: "user", userId: context.ownerId },
-        action: "workspace.created",
-        resource: { type: "workspace", id: workspaceId },
-      });
+const create = orgOwnerProcedure.input(z.object({ name: DisplayName })).handler(async ({ context, input }) => {
+  const { organizationId } = context.access;
+  const workspaceId = newId("ws");
+  await context.db.transaction(async (tx) => {
+    if (!(await authorizeOrganization(tx, context.ownerId, organizationId))) throw new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
+    await tx.insert(workspaces).values({ id: workspaceId, organizationId, name: input.name });
+    await recordAudit(tx, {
+      workspaceId,
+      ownerId: context.ownerId,
+      actor: { type: "user", userId: context.ownerId },
+      action: "workspace.created",
+      resource: { type: "workspace", id: workspaceId },
     });
-    await inScope({ userId: context.ownerId, organizationId, workspaceId }, () =>
-      context.db.transaction((tx) => seedMarketplaces(tx, context.ownerId, workspaceId)),
-    );
-    return { organizationId, workspaceId };
   });
+  await inScope({ userId: context.ownerId, organizationId, workspaceId }, () =>
+    context.db.transaction((tx) => seedMarketplaces(tx, context.ownerId, workspaceId)),
+  );
+  return { organizationId, workspaceId };
+});
 
 /** Renames the workspace the request names: its manager's or the organization owner's. */
-const rename = base
-  .use(manager)
-  .input(z.object({ name: DisplayName }))
-  .handler(async ({ context, input }) => {
-    const { workspaceId } = context.access;
-    await context.db.transaction(async (tx) => {
-      await tx.update(workspaces).set({ name: input.name }).where(eq(workspaces.id, workspaceId));
-      await recordAudit(tx, {
-        workspaceId,
-        ownerId: context.actorId,
-        actor: { type: "user", userId: context.actorId },
-        action: "workspace.renamed",
-        resource: { type: "workspace", id: workspaceId },
-      });
+const rename = managerProcedure.input(z.object({ name: DisplayName })).handler(async ({ context, input }) => {
+  const { workspaceId } = context.access;
+  await context.db.transaction(async (tx) => {
+    await tx.update(workspaces).set({ name: input.name }).where(eq(workspaces.id, workspaceId));
+    await recordAudit(tx, {
+      workspaceId,
+      ownerId: context.actorId,
+      actor: { type: "user", userId: context.actorId },
+      action: "workspace.renamed",
+      resource: { type: "workspace", id: workspaceId },
     });
-    return { name: input.name };
   });
+  return { name: input.name };
+});
 
 export const lifecycle = { create, rename };

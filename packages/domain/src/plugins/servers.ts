@@ -6,14 +6,12 @@ import { plugins as pluginsTable, runners, tools as toolsTable } from "../db/sch
 import { newId } from "../ids.ts";
 import type { Admitted, InitialContext } from "../rpc/context.ts";
 import { recordCreated } from "../platform/proposals.ts";
-import { base, manager } from "../rpc/context.ts";
+import { managerProcedure } from "../rpc/context.ts";
 import { TRANSPORTS } from "../tools/mcp.ts";
 import { createTool, Name, nameTaken, refreshRunnerActions, view as toolView, Url } from "../tools/store.ts";
 import { toolName } from "./components.ts";
 import type { PluginComponents } from "./read-plugin.ts";
 import { message } from "../messages/index.ts";
-
-const writer = base.use(manager);
 
 /**
  * The input of `plugins.addServer`, and of a setup's `plugins_add_server` item: for an HTTP
@@ -30,7 +28,7 @@ export const AddServerInput = z.union([
  * headers, or signs in, on the tool's page, as for any tool added by URL. It is listed in the
  * plugin's `created` and is the owner's: uninstalling the plugin keeps it.
  */
-export const addServer = writer.input(AddServerInput).handler(async ({ input, context }) => {
+export const addServer = managerProcedure.input(AddServerInput).handler(async ({ input, context }) => {
   const [plugin] = await context.db
     .select({ name: pluginsTable.name, components: pluginsTable.components, digest: pluginsTable.digest })
     .from(pluginsTable)

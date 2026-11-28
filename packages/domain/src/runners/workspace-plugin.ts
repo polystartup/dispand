@@ -4,12 +4,12 @@ import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { harnesses, plugins, runners, skillFiles, skillPackages, skills } from "../db/schema.ts";
 import { newId } from "../ids.ts";
-import { base, manager } from "../rpc/context.ts";
+import { managerProcedure } from "../rpc/context.ts";
 import { RunnerRequestFailed } from "./hub.ts";
 import { pluginNativeKey, workspaceNativeKey } from "../skills/native.ts";
 import { message } from "../messages/index.ts";
 
-export const workspaceSkills = base.use(manager).handler(async ({ context }) => {
+export const workspaceSkills = managerProcedure.handler(async ({ context }) => {
   const packages = await context.db
     .select()
     .from(skillPackages)
@@ -48,8 +48,7 @@ export const workspaceSkills = base.use(manager).handler(async ({ context }) => 
 });
 
 /** Whole plugin references keep its individual workspace skills from becoming duplicate installs. */
-export const workspacePlugin = base
-  .use(manager)
+export const workspacePlugin = managerProcedure
   .input(
     z
       .object({

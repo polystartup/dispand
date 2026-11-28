@@ -6,14 +6,11 @@ import type { Db } from "../db/client.ts";
 import { agents, harnesses as harnessesTable, runners, stepRuns } from "../db/schema.ts";
 import { listModels, ModelListError } from "../cloud/models.ts";
 import { newId } from "../ids.ts";
-import { base, manager, member } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
 import { apiKeyAad, CLOUD_KINDS, loadCloudHarness, type CloudKind } from "./cloud.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
-
-const reader = base.use(member);
-const writer = base.use(manager);
 
 /** A model the CLI is started with (`--model`): an alias like `opus` or a full model id. */
 export const ModelName = StorableText(100).trim().min(1);
@@ -135,7 +132,7 @@ async function find(db: Db, workspaceId: string, id: string) {
   return row;
 }
 
-const create = writer.input(Fields).handler(async ({ input, context }) => {
+const create = managerProcedure.input(Fields).handler(async ({ input, context }) => {
   const id = newId("harness");
   if (input.type === "cloud") {
     const [row] = await context.db
@@ -152,7 +149,7 @@ const create = writer.input(Fields).handler(async ({ input, context }) => {
   return toHarness(row!);
 });
 
-const update = writer
+const update = managerProcedure
   .input(z.union([ClaudeFields.extend({ id: z.string() }), CodexFields.extend({ id: z.string() }), CloudFields.extend({ id: z.string() })]))
   .handler(async ({ input, context }) => {
     const { id, ...fields } = input;
@@ -178,14 +175,14 @@ const update = writer
     return toHarness(row!);
   });
 
-const remove = writer.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = managerProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await find(context.db, context.access.workspaceId, input.id);
   const [used] = await context.db.select({ n: count() }).from(agents).where(eq(agents.harnessId, input.id));
   if (used && used.n > 0) throw new ORPCError("CONFLICT", message("harness.usedByAgent"));
   await context.db.delete(harnessesTable).where(eq(harnessesTable.id, input.id));
 });
 
-const list = reader.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(harnessesTable)
@@ -194,7 +191,7 @@ const list = reader.handler(async ({ context }) => {
   return rows.map(toHarness);
 });
 
-const get = reader.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   return toHarness(await find(context.db, context.access.workspaceId, input.id));
 });
 
@@ -203,7 +200,7 @@ const get = reader.input(z.object({ id: z.string() })).handler(async ({ input, c
  * key), for any member (an agent's model is picked from it), or of what the harness form holds,
  * for a manager only. Provider failures come back as a short reason, never its body.
  */
-const models = reader
+const models = memberProcedure
   .input(
     z.union([
       z.object({ harnessId: z.string() }),
@@ -258,7 +255,7 @@ export const MaxWorking = z.number().int().min(1).max(100);
  * that runner is connected now. Never its key, base URL or settings: agents read this to pick a
  * harness.
  */
-const limits = reader.handler(async ({ context }) => {
+const limits = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select({
       id: harnessesTable.id,
@@ -300,7 +297,7 @@ const limits = reader.handler(async ({ context }) => {
  * Sets a harness's limit. Raising it starts queued steps at once; lowering it stops nothing: new
  * turns wait until the sessions working are fewer than the limit.
  */
-const setLimit = writer.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
+const setLimit = managerProcedure.input(z.object({ id: z.string(), maxWorking: MaxWorking })).handler(async ({ input, context }) => {
   await find(context.db, context.access.workspaceId, input.id);
   await context.engine.setLimit(input.id, input.maxWorking);
   return { id: input.id, maxWorking: input.maxWorking };

@@ -5,7 +5,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { attachments, fields as fieldsTable, rows as rowsTable, runs, tables as tablesTable, workflows, workflowVersions } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { type MessageKey, message } from "../messages/index.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { tableIdsOf, type TableSchema } from "../workflows/data-steps.ts";
 import type { WorkflowDef } from "../workflows/model.ts";
 import { StorableText } from "../workflows/model.ts";
@@ -18,8 +18,6 @@ import { uniqueConstraint } from "../db/unique.ts";
 // Tables and their fields. Every schema change locks the table's row `FOR UPDATE` first, so
 // changes to one table run one at a time, and a row write (which takes it `FOR SHARE`) waits for
 // them and then sees the new fields.
-
-const owner = base.use(member);
 
 export const MAX_FIELDS = 200;
 
@@ -158,7 +156,7 @@ export function publish(events: { publish(event: DataEvent): void }, tableId: st
   events.publish({ type: "schema", tableId });
 }
 
-const create = owner.input(z.object({ name: Name })).handler(async ({ input, context }) => {
+const create = memberProcedure.input(z.object({ name: Name })).handler(async ({ input, context }) => {
   const workspaceId = context.access.workspaceId;
   const table = await context.db
     .transaction(async (tx) => {
@@ -183,7 +181,7 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
   return table;
 });
 
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   return context.db
     .select({
       id: tablesTable.id,
@@ -202,7 +200,7 @@ const list = owner.handler(async ({ context }) => {
     .orderBy(sql`lower(${tablesTable.name})`, asc(tablesTable.id));
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const [table] = await context.db
     .select()
     .from(tablesTable)
@@ -211,7 +209,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
   return tableView(context.db, table);
 });
 
-const rename = owner.input(z.object({ id: z.string(), name: Name })).handler(async ({ input, context }) => {
+const rename = memberProcedure.input(z.object({ id: z.string(), name: Name })).handler(async ({ input, context }) => {
   const table = await context.db
     .transaction(async (tx) => {
       await lockTable(tx, context.access.workspaceId, input.id);
@@ -228,7 +226,7 @@ const rename = owner.input(z.object({ id: z.string(), name: Name })).handler(asy
 });
 
 /** Deletes the table, its fields and rows; refused while a workflow uses it. */
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     await lockTable(tx, context.access.workspaceId, input.id);
     const [own] = await tx.select({ pluginId: tablesTable.pluginId }).from(tablesTable).where(eq(tablesTable.id, input.id));
@@ -268,7 +266,7 @@ function unusedName(base: string, taken: Set<string>): string {
  * parent table (created, named after it, when the table has none), and whether every row must
  * name one. Only a primitive table has a parent; a required one can't be set while rows lack it.
  */
-const setPrimitive = owner
+const setPrimitive = memberProcedure
   .input(
     z.object({
       id: z.string(),
@@ -341,7 +339,7 @@ export const FieldInput = z.object({
   referencesTableId: z.string().max(64).optional(),
 });
 
-const createField = owner.input(FieldInput).handler(async ({ input, context }) => {
+const createField = memberProcedure.input(FieldInput).handler(async ({ input, context }) => {
   const choices = input.choices ?? [];
   if (choices.length > 0 && input.type !== "single-select") throw new ORPCError("BAD_REQUEST", message("data.field.choicesOnlySelect"));
   if ((input.type === "reference") !== (input.referencesTableId !== undefined)) {
@@ -408,35 +406,39 @@ export async function updateFieldIn(tx: Tx, field: FieldRow, input: { name?: str
 }
 
 /** Renames, or replaces a single select's choices; cells holding a removed choice are cleared. */
-const updateField = owner.input(z.object({ id: z.string(), name: Name.optional(), choices: Choices.optional() })).handler(async ({ input, context }) => {
-  const { field, cleared } = await context.db
-    .transaction(async (tx) => {
-      const field = await lockField(tx, context.access.workspaceId, input.id);
-      return updateFieldIn(tx, field, input, !!context.job);
-    })
-    .catch(nameTaken("data.field.nameTaken", input.name ?? ""));
-  publish(context.dataEvents, field.tableId, cleared);
-  return fieldView(field);
-});
+const updateField = memberProcedure
+  .input(z.object({ id: z.string(), name: Name.optional(), choices: Choices.optional() }))
+  .handler(async ({ input, context }) => {
+    const { field, cleared } = await context.db
+      .transaction(async (tx) => {
+        const field = await lockField(tx, context.access.workspaceId, input.id);
+        return updateFieldIn(tx, field, input, !!context.job);
+      })
+      .catch(nameTaken("data.field.nameTaken", input.name ?? ""));
+    publish(context.dataEvents, field.tableId, cleared);
+    return fieldView(field);
+  });
 
 /** Sets the order of the table's fields: `fieldIds` must be exactly its fields. The first is the primary field. */
-const reorder = owner.input(z.object({ tableId: z.string(), fieldIds: z.array(z.string()).min(1).max(MAX_FIELDS) })).handler(async ({ input, context }) => {
-  const view = await context.db.transaction(async (tx) => {
-    const table = await lockTable(tx, context.access.workspaceId, input.tableId);
-    const current = new Set((await fieldsOf(tx, table.id)).map((f) => f.id));
-    const given = new Set(input.fieldIds);
-    if (given.size !== input.fieldIds.length || given.size !== current.size || input.fieldIds.some((id) => !current.has(id))) {
-      throw new ORPCError("BAD_REQUEST", message("data.table.listEveryField"));
-    }
-    for (const [position, id] of input.fieldIds.entries()) {
-      await tx.update(fieldsTable).set({ position }).where(eq(fieldsTable.id, id));
-    }
-    await touch(tx, table.id);
-    return tableView(tx, table);
+const reorder = memberProcedure
+  .input(z.object({ tableId: z.string(), fieldIds: z.array(z.string()).min(1).max(MAX_FIELDS) }))
+  .handler(async ({ input, context }) => {
+    const view = await context.db.transaction(async (tx) => {
+      const table = await lockTable(tx, context.access.workspaceId, input.tableId);
+      const current = new Set((await fieldsOf(tx, table.id)).map((f) => f.id));
+      const given = new Set(input.fieldIds);
+      if (given.size !== input.fieldIds.length || given.size !== current.size || input.fieldIds.some((id) => !current.has(id))) {
+        throw new ORPCError("BAD_REQUEST", message("data.table.listEveryField"));
+      }
+      for (const [position, id] of input.fieldIds.entries()) {
+        await tx.update(fieldsTable).set({ position }).where(eq(fieldsTable.id, id));
+      }
+      await touch(tx, table.id);
+      return tableView(tx, table);
+    });
+    publish(context.dataEvents, view.id);
+    return view;
   });
-  publish(context.dataEvents, view.id);
-  return view;
-});
 
 /** The names of a table's files, for a retype from attachment to a text type. */
 async function attachmentNames(tx: Tx, tableId: string): Promise<Record<string, string>> {
@@ -450,7 +452,7 @@ const isEmpty = (cell: Cell) => cell === null || cell === "" || (Array.isArray(c
  * Changes a field's type and converts every cell (`convertCells`). With `dryRun`, only counts:
  * `converted` non-empty cells keep a value, `cleared` become empty.
  */
-const retype = owner.input(z.object({ id: z.string(), type: z.enum(FIELD_TYPES), dryRun: z.boolean() })).handler(async ({ input, context }) => {
+const retype = memberProcedure.input(z.object({ id: z.string(), type: z.enum(FIELD_TYPES), dryRun: z.boolean() })).handler(async ({ input, context }) => {
   // A reference names a table, which a retype can't say: a reference field is created as one.
   if (input.type === "reference") throw new ORPCError("BAD_REQUEST", message("data.field.retypeToReference"));
   const result = await context.db.transaction(async (tx) => retypeIn(tx, await lockField(tx, context.access.workspaceId, input.id), input.type, input.dryRun));
@@ -499,7 +501,7 @@ async function refuseIfParent(tx: Tx, field: FieldRow) {
   if (table?.parentFieldId === field.id) throw new ORPCError("CONFLICT", message("data.field.isParent", { field: field.name }));
 }
 
-const removeField = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const removeField = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const tableId = await context.db.transaction(async (tx) => removeFieldIn(tx, await lockField(tx, context.access.workspaceId, input.id)));
   publish(context.dataEvents, tableId);
 });

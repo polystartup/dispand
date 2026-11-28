@@ -5,7 +5,7 @@ import type { Db } from "../db/client.ts";
 import { agents, messages, questions, runs, stepRuns, triggers } from "../db/schema.ts";
 import { messageRow } from "../engine/message-parts.ts";
 import { messageView, questionView } from "../engine/views.ts";
-import { base, inPlacedScope, member, signedIn } from "../rpc/context.ts";
+import { inPlacedScope, memberProcedure, signedInProcedure } from "../rpc/context.ts";
 import { placeOfRun } from "../workspace/authorize.ts";
 import { knownTimezone } from "../workflows/schedule.ts";
 import { engineError, runQuestion } from "../workflows/procedures.ts";
@@ -14,15 +14,12 @@ import { consultsOfJob } from "./consults.ts";
 import { readableRun } from "../workspace/access.ts";
 import { message } from "../messages/index.ts";
 
-const owner = base.use(member);
-
 /** The workspace's Jobs a person sees: all but other people's Assistant chats, which stay their own. */
 const visibleJobs = (c: { access: { workspaceId: string }; actorId: string }) =>
   and(eq(runs.workspaceId, c.access.workspaceId), eq(runs.source, "agent"), or(isNull(agents.builtIn), eq(runs.ownerId, c.actorId)));
-const reader = base.use(signedIn);
 
 /** Starts a Job of a manual trigger, in the owner's `timezone` when the browser gives it; a chat placement also gives the conversation's session. */
-const start = owner
+const start = memberProcedure
   .input(
     z.object({
       triggerId: z.string(),
@@ -57,7 +54,7 @@ const start = owner
 
 /** A Job's definition, as it was created: what its run page and its conversation name the steps from. */
 const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input, context }) =>
+const def = signedInProcedure.input(z.object({ runId: z.string() })).handler(async ({ input, context }) =>
   inPlacedScope(context, await placeOfRun(context.db, input.runId), runNotFound, async () => {
     const [run] = await context.db
       .select({ def: runs.def })
@@ -69,7 +66,7 @@ const def = reader.input(z.object({ runId: z.string() })).handler(async ({ input
 );
 
 /** The consults of a Job, for its page: those it asked, and the one it answers (`consults.ts`). */
-const consults = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+const consults = memberProcedure.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   const [run] = await context.db
     .select({ id: runs.id, workspaceId: runs.workspaceId, cause: runs.cause })
     .from(runs)
@@ -101,7 +98,7 @@ export const JOBS_PAGE = 50;
  * The owner's latest Jobs, of one agent or one trigger, or with one status: who ran, why, how it
  * went, and the ids of its Questions and Approvals still waiting. No workflow run.
  */
-const list = owner
+const list = memberProcedure
   .input(
     z.object({
       agentId: z.string().optional(),
@@ -142,7 +139,7 @@ const jobNotFound = () => new ORPCError("NOT_FOUND", message("jobs.notFound"));
  * One Job with its transcript (a page of its messages, oldest first, and how many it has) and
  * its Questions and Approvals, answered ones included.
  */
-const get = reader
+const get = signedInProcedure
   .input(
     z.object({
       id: z.string(),
