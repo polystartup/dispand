@@ -118,17 +118,27 @@ function kept<T extends object>(row: T, make: (row: T) => ThreadMessageLike): Th
 const SHOW_TRACES = new Set([ARTIFACT_TOOL, `mcp__${JOB_SERVER_NAME}__${ARTIFACT_TOOL}`]);
 
 /**
- * An artifact's card says its call happened, so the call's trace line is left out: the nearest one
- * before the card, or after it when the card was stored first. A call that made no card keeps its line.
+ * An artifact's card says its call happened, so one trace line of the call is left out for each card:
+ * the latest one before it, or the next one when the card was stored first. A call that made no card
+ * keeps a line. One pass: a model can make a long run of these calls.
  */
 function withoutShownTraces(rows: Message[]): Message[] {
   const shown = new Set<Message>();
-  const unclaimed = (m: Message) => m.role === "tool" && !m.result && SHOW_TRACES.has(m.text) && !shown.has(m);
-  rows.forEach((row, i) => {
-    if (!row.result || !("artifactId" in row.result)) return;
-    const trace = rows.slice(0, i).findLast(unclaimed) ?? rows.slice(i + 1).find(unclaimed);
-    if (trace) shown.add(trace);
-  });
+  const traces: Message[] = [];
+  let cards = 0;
+  for (const row of rows) {
+    if (row.role !== "tool") continue;
+    if (row.result && "artifactId" in row.result) {
+      const trace = traces.pop();
+      if (trace) shown.add(trace);
+      else cards++;
+    } else if (!row.result && SHOW_TRACES.has(row.text)) {
+      if (cards > 0) {
+        cards--;
+        shown.add(row);
+      } else traces.push(row);
+    }
+  }
   return rows.filter((row) => !shown.has(row));
 }
 

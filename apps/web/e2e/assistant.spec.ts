@@ -997,6 +997,7 @@ test("a running artifact expands to most of the window, follows the theme, and c
   await page.setViewportSize({ width: 1280, height: 1000 });
   await expect.poll(frameHeight).toBe(tall);
   await expect(frame.locator("body")).toHaveAttribute("data-kept", "yes");
+  await expect(frame.locator("html")).toHaveCSS("overflow-y", "auto");
 
   // A script of the artifact that fails while it is expanded says so in the dialog.
   await expect(expanded.getByRole("status")).toHaveCount(0);

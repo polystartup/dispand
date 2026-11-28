@@ -50,6 +50,11 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
     enabled: !!result && (running || showCode),
     staleTime: Infinity,
   });
+  // Expanding and collapsing mount a new frame, which reports its own failure.
+  const expand = (next: boolean) => {
+    setFailed(false);
+    setExpanded(next);
+  };
   if (!result) return null;
   const code = artifact.data?.code;
   // Shown on the card, and in the dialog while the artifact is expanded: where the person is looking.
@@ -83,7 +88,7 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
           </Button>
         )}
         {running && (
-          <Button ref={expandButton} size="sm" variant="outline" onClick={() => setExpanded(true)}>
+          <Button ref={expandButton} size="sm" variant="outline" onClick={() => expand(true)}>
             <Maximize2 aria-hidden />
             {t("artifactExpand")}
           </Button>
@@ -101,7 +106,7 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
         <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-soft p-3 font-mono text-[12px]">{code}</pre>
       )}
       {/* Esc and the focus trap come from the dialog; the focus goes back to Expand by hand (no Trigger). Esc closes it only while the focus is outside the frame (a frame's keys are its own). */}
-      <Dialog open={expanded} onOpenChange={setExpanded}>
+      <Dialog open={expanded} onOpenChange={expand}>
         <DialogContent
           className="flex h-[calc(100dvh-1rem)] w-[calc(100%-1rem)] max-w-none flex-col gap-2 p-3 text-[13px]"
           onCloseAutoFocus={(event) => {
@@ -115,7 +120,7 @@ export const ArtifactPart: ToolCallMessagePartComponent<Record<string, never>, A
               <DialogTitle className="truncate text-[15px]">{result.title}</DialogTitle>
               <DialogDescription className="text-[12px]">{t("artifactGenerated")}</DialogDescription>
             </div>
-            <Button size="sm" variant="outline" onClick={() => setExpanded(false)}>
+            <Button size="sm" variant="outline" onClick={() => expand(false)}>
               <Minimize2 aria-hidden />
               {t("artifactCollapse")}
             </Button>
@@ -158,9 +163,9 @@ function ArtifactFrame({ code, onFailed, expanded = false }: { code: string; onF
     tokens,
     // Self-contained: no CDN, no connections, no nested frames, no eval.
     csp: { cdnOrigins: [] },
-    // Inline the frame grows with its content up to 480 px. Expanded, the dialog sizes it (below), through every
-    // window resize: told a height it is at least as tall as, the frame scrolls content its own height doesn't fit.
-    ...(expanded ? { context: { containerDimensions: { maxHeight: 240 } } } : { maxHeight: 480 }),
+    // Inline the frame grows with its content up to 480 px. Expanded, the dialog sizes it (below) through every
+    // window resize, so the frame scrolls whenever its content is taller, whatever the frame would decide.
+    ...(expanded ? { css: "html { overflow-y: auto !important; }" } : { maxHeight: 480 }),
     ...(prompt ? { onPrompt: prompt } : {}),
     onOpenLink: (url) => {
       // The address the owner reads stays the one Open opens: a later request waits for the dialog to close.
