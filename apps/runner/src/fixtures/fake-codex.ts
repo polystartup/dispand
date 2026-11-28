@@ -6,7 +6,9 @@
 // - FAKE_CODEX_SESSIONS: a file holding the `accountSession/list` result, as JSON, read at each call.
 // - FAKE_CODEX_AUTH: a file holding the `getAuthStatus` result, as JSON, read at each call.
 // - FAKE_CODEX_AUTH_RENEWED: what a successful `account/read` with `refreshToken: true` writes to FAKE_CODEX_AUTH's file.
+// - FAKE_CODEX_SESSIONS_RENEWED: what a successful refresh writes to FAKE_CODEX_SESSIONS's file.
 // - FAKE_CODEX_REFRESH: "fail" makes `account/read` with `refreshToken: true` fail.
+// - FAKE_CODEX_REFRESH_WRITES_LOGIN: when set, every refresh, failed or not, also rewrites `$CODEX_HOME/auth.json`.
 // - FAKE_CODEX_CONFIG: the effective config `config/read` returns, as JSON (default {}).
 // - FAKE_CODEX_MCP_STATUS: the `mcpServerStatus/list` result, as JSON (default no server).
 // - FAKE_CODEX_MCP_STATUS_DELAY: milliseconds `mcpServerStatus/list` waits before its reply.
@@ -108,6 +110,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
   if (msg.id === undefined) return;
   const reply = (result: unknown) => send({ id: msg.id, result });
+  if (msg.method === "account/read" && msg.params?.refreshToken && env.FAKE_CODEX_REFRESH_WRITES_LOGIN) appendFileSync(`${env.CODEX_HOME}/auth.json`, " ");
   if (msg.method === "initialize") {
     initialized = true;
     reply({ userAgent: "fake", codexHome: "/nonexistent", platformFamily: "unix", platformOs: "linux" });
@@ -115,6 +118,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   else if (msg.method === "account/read" && msg.params?.refreshToken && env.FAKE_CODEX_REFRESH === "fail") send({ id: msg.id, error: { code: -32603, message: "refresh token revoked" } });
   else if (msg.method === "account/read") {
     if (msg.params?.refreshToken && env.FAKE_CODEX_AUTH && env.FAKE_CODEX_AUTH_RENEWED) writeFileSync(env.FAKE_CODEX_AUTH, env.FAKE_CODEX_AUTH_RENEWED);
+    if (msg.params?.refreshToken && env.FAKE_CODEX_SESSIONS && env.FAKE_CODEX_SESSIONS_RENEWED) writeFileSync(env.FAKE_CODEX_SESSIONS, env.FAKE_CODEX_SESSIONS_RENEWED);
     reply(account);
   }
   else if (msg.method === "getAuthStatus") reply(JSON.parse(env.FAKE_CODEX_AUTH ? readFileSync(env.FAKE_CODEX_AUTH, "utf8") : '{"authMethod":null,"authToken":null,"requiresOpenaiAuth":true}'));
