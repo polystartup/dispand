@@ -1,4 +1,4 @@
-import { CronExpressionParser } from "cron-parser";
+import { Cron } from "croner";
 import { type Message, say } from "../messages/index.ts";
 
 // Pure: imported by the web editor too (`@dispand/domain/workflows/schedule`).
@@ -32,51 +32,100 @@ export function knownTimezone(timezone: string): boolean {
   }
 }
 
-function parse(cron: string, timezone: string, currentDate: Date) {
-  return CronExpressionParser.parse(cron, { tz: timezone, currentDate });
+/** Each field's last value as cron-parser read it (day-of-week's 7 is Sunday too), and the longest step croner takes. */
+const LAST = [59, 23, 31, 12, 7];
+const LONGEST_STEP = [60, 24, 31, 12, 7];
+/** Month and weekday names, numbered as cron-parser did: January 1, Sunday 0 (croner reads a range's last SUN as 7). */
+const NAMES = [
+  [],
+  [],
+  [],
+  ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"],
+  ["sun", "mon", "tue", "wed", "thu", "fri", "sat"],
+];
+
+/**
+ * `cron` written so croner reads it as cron-parser, which read schedules before it, did: names
+ * as its numbers (`SUN-SUN` is Sunday alone), any weekday's nth as a range's (`*#2`, which croner
+ * refuses), a step from one value runs to the field's end (`5/15` is `5-59/15`, and day-of-week
+ * ends at 7, Sunday), and a step longer than its field keeps only its start (every 100 hours is
+ * midnight), which croner refuses.
+ */
+function asSaved(cron: string): string {
+  return cron
+    .trim()
+    .split(/\s+/)
+    .map((field, i) =>
+      field
+        .replace(/^[*?]#/, "0-6#")
+        .replace(/[a-z]{3}/gi, (name) => {
+          const n = NAMES[i]!.indexOf(name.toLowerCase());
+          return n < 0 ? name : String(i === 3 ? n + 1 : n);
+        })
+        .replace(/([^,/]+)\/(\d+)/g, (_, from: string, step: string) => {
+          const range = from === "*" || from === "?" || from.includes("-") ? from : `${from}-${LAST[i]}`;
+          return `${range}/${Math.min(Number(step), LONGEST_STEP[i]!)}`;
+        }),
+    )
+    .join(" ");
+}
+
+/**
+ * How far croner looks for a fire, from `from`: past the longest gap between two fires a cron can
+ * have, 40 years (a 29 February on a given weekday, across 2100). Left alone it searches to the
+ * year 10000, seconds of CPU for a cron whose every time falls in DST gaps (`* 2 * 3 0L` in Paris).
+ */
+const SEARCH_YEARS = 50;
+
+/**
+ * How croner reads `cron` in `timezone` from `from` (`back`: up to it), in that zone's wall clock.
+ * A time a DST change repeats fires once, on its first pass. A time a change skips fires once at
+ * the end of the gap (a daily 02:30 at 03:00 in Paris), that day: a gap that runs to midnight
+ * (Nuuk's, from 23:00) skips it, as cron-parser did. Unless the cron gives its minute or hour as
+ * `*` or a step (every 15 minutes, an hourly `15 * * * *`): that is an interval, in real time,
+ * firing on both passes of a repeated hour and never in a skipped one.
+ */
+function read(cron: string, timezone: string, from: Date, back = false): Cron {
+  // croner keeps a formatter for each spelling of a zone (`europe/paris`), for good: give it the canonical one.
+  const zone = new Intl.DateTimeFormat("en-US", { timeZone: timezone }).resolvedOptions().timeZone;
+  const year = from.getUTCFullYear();
+  const years = back ? `${year - SEARCH_YEARS}-${year + 1}` : `${year - 1}-${year + SEARCH_YEARS}`;
+  return new Cron(`0 ${asSaved(cron)} ${years}`, { timezone: zone, mode: "7-part", fixedTimeRule: "no-wildcard" });
 }
 
 /** Why `cron` in `timezone` can't be a schedule, for the owner, or null when it can. */
 export function cronProblem(cron: string, timezone: string): Message | null {
-  if (cron.trim().split(/\s+/).length !== 5) return say("workflows.schedule.fields");
-  // cron-parser picks a random minute for each parse of `H`: its fires couldn't be predicted.
+  // croner reads a colon as a one-time date ("Jan 1 2030 00:00"), never a cron.
+  if (cron.trim().split(/\s+/).length !== 5 || cron.includes(":")) return say("workflows.schedule.fields");
+  // Jenkins' `H` (a minute picked per job) isn't cron: croner refuses it, said plainly here.
   if (/h/i.test(cron)) return say("workflows.schedule.noH");
   if (!knownTimezone(timezone)) return say("workflows.schedule.unknownTimezone");
   try {
     // Parsing alone accepts dates that never come (31 February); finding the next one doesn't.
-    parse(cron, timezone, new Date()).next();
+    nextFireAfter(cron, timezone, new Date());
     return null;
   } catch (error) {
     return say("workflows.schedule.unreadable", { reason: error instanceof Error ? error.message : String(error) });
   }
 }
 
-/** Longer than any DST change: reading fires from this far back starts before a repeated hour. */
-const ANCHOR_MS = 2 * 3600_000;
-
-/**
- * The fires strictly after `after`, read from two hours earlier. cron-parser's `next` depends on
- * where it starts: from inside a repeated hour (02:00-03:00 on the last Sunday of October in
- * Paris) it gives that hour's second pass, from before it only the first. Starting before keeps
- * every helper on the same fires, so a daily 02:30 fires once that day whatever the clock says.
- */
-function* firesAfter(cron: string, timezone: string, after: Date): Generator<Date, never> {
-  const it = parse(cron, timezone, new Date(after.getTime() - ANCHOR_MS));
-  for (;;) {
-    const fire = it.next().toDate();
-    if (fire > after) yield fire;
-  }
-}
-
 /** The first fire strictly after `after`. */
 export function nextFireAfter(cron: string, timezone: string, after: Date): Date {
-  return firesAfter(cron, timezone, after).next().value;
+  const next = read(cron, timezone, after).nextRun(after);
+  if (!next) throw new Error(`it doesn't fire in the next ${SEARCH_YEARS} years`);
+  return next;
 }
 
-/** The next `n` fires strictly after `from`. */
+/** The next `n` fires strictly after `from` (fewer for a cron that stops firing). */
 export function nextFires(cron: string, timezone: string, from: Date, n: number): Date[] {
-  const fires = firesAfter(cron, timezone, from);
-  return Array.from({ length: n }, () => fires.next().value);
+  const fires: Date[] = [];
+  // Each from the one before: `SEARCH_YEARS` bounds the gap between two fires, not all `n`.
+  for (let at = from; fires.length < n;) {
+    const next = read(cron, timezone, at).nextRun(at);
+    if (!next) break;
+    fires.push((at = next));
+  }
+  return fires;
 }
 
 /**
@@ -84,17 +133,9 @@ export function nextFires(cron: string, timezone: string, from: Date, n: number)
  * time a schedule fires for (missed fires coalesce into it).
  */
 export function latestFireBetween(cron: string, timezone: string, since: Date, until: Date): Date | null {
-  // `prev` only finds where to look (it doesn't pick the same fires as `next` around DST changes,
-  // and is strictly before its date, hence the +1 ms); the fires themselves are read forward.
-  const before = parse(cron, timezone, new Date(until.getTime() + 1))
-    .prev()
-    .toDate();
-  let latest: Date | null = null;
-  for (const fire of firesAfter(cron, timezone, new Date(Math.max(since.getTime(), before.getTime() - ANCHOR_MS)))) {
-    if (fire > until) break;
-    latest = fire;
-  }
-  return latest;
+  // `previousRuns` is strictly before its date, hence the +1 ms.
+  const [latest] = read(cron, timezone, until, true).previousRuns(1, new Date(until.getTime() + 1));
+  return latest && latest > since ? latest : null;
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");

@@ -9,11 +9,11 @@ const pad = (n: number) => String(n).padStart(2, "0");
 
 /** Every zone `Intl.supportedValuesOf` lists, and often the two UTC names it lists neither of. */
 const allZones = fc.oneof(fc.constantFrom("UTC", "Etc/UTC"), fc.constantFrom(...Intl.supportedValuesOf("timeZone")));
-// Zones with DST changes north and south, and zones without. Narrower than the claims, which hold
-// for every zone: cron-parser mis-reads some zones' changes today (#616), so these leave out Lord
-// Howe and Chatham (changes off the hour), Havana and Santiago (at midnight) and Troll (two hours).
-const ZONES = ["Europe/Paris", "America/New_York", "Australia/Sydney", "Asia/Kolkata", "UTC"];
-/** Their 2027 DST changes, each with its zone, so fires around them come up often. */
+/**
+ * DST changes, each with its zone, so fires around them come up often: north and south, and the
+ * kinds cron-parser mis-read (#616): half-hour changes and off the hour (Lord Howe, Chatham), at
+ * midnight (Santiago, Havana) and two hours (Troll).
+ */
 const CHANGES: [string, string][] = [
   ["Europe/Paris", "2027-03-28T01:00Z"],
   ["Europe/Paris", "2027-10-31T01:00Z"],
@@ -21,11 +21,21 @@ const CHANGES: [string, string][] = [
   ["America/New_York", "2027-11-07T06:00Z"],
   ["Australia/Sydney", "2027-04-03T16:00Z"],
   ["Australia/Sydney", "2027-10-02T16:00Z"],
+  ["Australia/Lord_Howe", "2027-04-03T15:00Z"],
+  ["Australia/Lord_Howe", "2027-10-02T15:30Z"],
+  ["Pacific/Chatham", "2027-04-03T14:00Z"],
+  ["Pacific/Chatham", "2027-09-25T14:00Z"],
+  ["America/Santiago", "2027-04-04T03:00Z"],
+  ["America/Santiago", "2027-09-05T04:00Z"],
+  ["America/Havana", "2026-11-01T05:00Z"],
+  ["America/Havana", "2027-03-14T05:00Z"],
+  ["Antarctica/Troll", "2027-03-28T01:00Z"],
+  ["Antarctica/Troll", "2027-10-31T01:00Z"],
 ];
 
 /** On the minute half the time, as fires are. */
 const millis = fc.oneof(fc.constant(0), fc.integer({ min: 1, max: MINUTE - 1 }));
-/** A zone and a date: hours or days before one of its DST changes, or any date of a few years. */
+/** A zone and a date: hours or days before one of its DST changes, or any zone and date of a few years. */
 const zoned = fc.oneof(
   {
     weight: 3,
@@ -35,9 +45,7 @@ const zoned = fc.oneof(
   },
   {
     weight: 1,
-    arbitrary: fc
-      .tuple(fc.constantFrom(...ZONES), fc.integer({ min: Date.UTC(2026, 0, 1), max: Date.UTC(2031, 0, 1) }))
-      .map(([zone, t]) => ({ zone, date: new Date(t) })),
+    arbitrary: fc.tuple(allZones, fc.integer({ min: Date.UTC(2026, 0, 1), max: Date.UTC(2031, 0, 1) })).map(([zone, t]) => ({ zone, date: new Date(t) })),
   },
 );
 
@@ -55,10 +63,22 @@ const presets: fc.Arbitrary<SchedulePreset> = fc.oneof(
   }),
   fc.record({ kind: fc.constant("monthly" as const), day: fc.integer({ min: 1, max: 28 }), time }),
 );
-/** Presets, and crons that fire often or inside the hours DST changes (02:30 repeats in Paris and Sydney, 01:30 in New York). */
+/** Presets, and crons that fire often or inside the hours DST changes (02:30 repeats in Paris and Sydney, 01:30 in New York, midnight in Havana), and #616's. */
 const crons = fc.oneof(
   presets.map(toCron),
-  fc.constantFrom("*/15 * * * *", "0 */2 * * *", "0,30 1-3 * * *", "45 2 * * 0", "30 2 * * *", "30 1 * * *", "15 0 1,15 * *", "30 23 * * 6"),
+  fc.constantFrom(
+    "*/15 * * * *",
+    "0 */2 * * *",
+    "0,30 1-3 * * *",
+    "45 2 * * 0",
+    "30 2 * * *",
+    "30 1 * * *",
+    "15 0 1,15 * *",
+    "30 23 * * 6",
+    "44 * * * *",
+    "0 0 * * *",
+    "0 9 * * *",
+  ),
 );
 
 // Fixed seeds and few runs: the same inputs on every run, so a merge queue never meets a new one.
@@ -66,7 +86,7 @@ const crons = fc.oneof(
 // schedule.ts "so presets round-trip exactly"; "The schedules the picker offers" and "or null when it can"; "`UTC` and `Etc/UTC` included".
 test("every preset round-trips through toCron and fromCron, and is a schedule in any zone", () => {
   // cronProblem looks for the next fire from now (schedule.ts): a fixed now, the same answers
-  // every day. Near some zones' DST changes it calls presets unreadable (Lord Howe on 2027-04-03).
+  // every day.
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2027-01-15T12:00:00Z"));
   try {
@@ -107,7 +127,7 @@ test("fromCron reads as a preset only a schedule toCron writes back the same", (
   );
 });
 
-// schedule.ts "The first fire strictly after `after`"; "The next `n` fires strictly after `from`"; "Starting before keeps every helper on the same fires".
+// schedule.ts "The first fire strictly after `after`"; "The next `n` fires strictly after `from`"; schedule.test.ts "every helper picks the same fires across DST".
 test("nextFires are strictly increasing, and nextFireAfter of any date gives the next of them", () => {
   fc.assert(
     fc.property(crons, zoned, fc.integer({ min: 0, max: HOUR - 1 }), fc.integer({ min: 0, max: 999_999 }), (cron, { zone, date: from }, delay, at) => {
@@ -151,7 +171,9 @@ test("latestFireBetween is the last fire in (since, until], or null when none fa
   );
 });
 
-// schedule.ts "a daily 02:30 fires once that day"; "Every weekday at 09:00", in the timezone named; schedule.test.ts "fires once per day across DST".
+// schedule.ts "A time a DST change repeats fires once, on its first pass. A time a change skips fires once at the end of the gap",
+// "that day": not for a gap that runs to midnight (Nuuk's, none in CHANGES); "Every weekday at 09:00", in the timezone named;
+// schedule.test.ts "fires once per day across DST".
 test("a daily schedule fires once on each day at its time, across DST changes", () => {
   fc.assert(
     fc.property(time, zoned, (at, { zone, date: from }) => {
