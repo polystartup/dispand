@@ -81,7 +81,7 @@ function lawFirmMarketplace(dir: string) {
 }
 
 /** What the pages show, made once for the run, by the first test that needs it. */
-let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string; harnessName: string }> | undefined;
+let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string; harnessName: string; skillName: string }> | undefined;
 function seed(page: Page) {
   made ??= (async () => {
     // A name of its own: a worker started after a failed test seeds again, on the same app.
@@ -98,6 +98,13 @@ function seed(page: Page) {
       model: "axe-model",
       systemPrompt: "",
     });
+    const skillName = `axe-scan-${Date.now()}`;
+    await rpc(page, "skills/create", {
+      name: skillName,
+      description: "Use when scanning: answers AXE.",
+      instructions: "# Axe\n\nAnswer AXE.",
+      requiredToolIds: [],
+    });
     const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
@@ -113,7 +120,7 @@ function seed(page: Page) {
     });
     const home = await rpc<{ id: string }>(page, "pages/home");
     await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
-    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName };
+    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName, skillName };
   })();
   return made;
 }
@@ -245,6 +252,69 @@ for (const scheme of ["light", "dark"] as const) {
         known: MENU_KNOWN,
       },
       {
+        name: "a row's detail sheet",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "Open row" }).first().click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the new row dialog",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "New row" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the dialog to change a field's type",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "Field menu: Repository URL" }).click();
+          await page.getByRole("menuitem", { name: "Change type" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the dialog of a table's events and parent",
+        route: ({ tableId }) => `/settings/data/${tableId}`,
+        ready: link,
+        open: async (page) => {
+          await page.getByRole("button", { name: "Table menu" }).click();
+          await page.getByRole("menuitem", { name: "Events and parent" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the new skill sheet",
+        route: () => "/settings/skills",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Create skill" }).first().click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "a skill's editor",
+        route: () => "/settings/skills",
+        open: async (page, { skillName }) => {
+          await page.getByRole("button", { name: `Edit ${skillName}` }).click();
+          await expect(dialog(page).getByLabel("Instructions")).toHaveValue(/Answer AXE/);
+          return dialog(page);
+        },
+      },
+      {
+        name: "the memory's new entry sheet",
+        route: () => "/settings/memory",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Add entry" }).first().click();
+          return dialog(page);
+        },
+      },
+      {
         name: "the profile dialog",
         route: () => "/help",
         open: async (page) => {
@@ -262,7 +332,7 @@ for (const scheme of ["light", "dark"] as const) {
       });
     }
 
-    test("the plugin's install, set up and remove sheets have none", async ({ page }) => {
+    test("the plugin's install, set up, skill files and remove sheets have none", async ({ page }) => {
       test.setTimeout(120_000);
       await seed(page);
       const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: lawFirmMarketplace(test.info().outputPath("market")) });
@@ -277,6 +347,16 @@ for (const scheme of ["light", "dark"] as const) {
         await sheet.getByRole("checkbox", { name: /Install the complete native plugin/ }).uncheck();
         await sheet.getByRole("button", { name: "Install", exact: true }).click();
         await expect(sheet.getByText("Installed in the workspace.")).toBeVisible();
+        await page.keyboard.press("Escape");
+
+        // The plugin's skills, whose files the owner may change.
+        await page.goto("/settings/skills");
+        await page
+          .getByRole("button", { name: /^Files of / })
+          .first()
+          .click();
+        await expect(sheet.getByRole("button", { name: /^Edit / }).first()).toBeVisible();
+        await scanned(page);
         await page.keyboard.press("Escape");
 
         await page.goto("/settings/plugins/installed");
