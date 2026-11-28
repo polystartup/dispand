@@ -8,7 +8,8 @@ import { UserMenu } from "./UserMenu.tsx";
 /** What a person sees when they belong to no workspace (their assignments were removed): the owner to ask in each of their organizations. */
 export function NoWorkspace({ user }: Pick<ComponentProps<typeof UserMenu>, "user">) {
   const { t } = useTranslation("shell");
-  const contacts = useQuery(orpc.workspace.contacts.queryOptions());
+  // Not kept once the screen goes: another account may sign in to this page.
+  const contacts = useQuery(orpc.workspace.contacts.queryOptions({ gcTime: 0 }));
   return (
     <AuthCard title={t("noWorkspace.title")} subtitle={t("noWorkspace.subtitle")}>
       <div className="space-y-4">
@@ -19,7 +20,7 @@ export function NoWorkspace({ user }: Pick<ComponentProps<typeof UserMenu>, "use
         )}
         {contacts.data?.length === 0 && <p className="text-[15px]">{t("noWorkspace.noOrganization")}</p>}
         {contacts.data?.map(({ organizationId, organizationName, owner }) => (
-          <p key={organizationId} className="text-[15px]">
+          <p key={organizationId} className="text-[15px] wrap-anywhere">
             <span className="mb-1.5 block text-[13px] font-medium text-muted">{t("noWorkspace.ask", { organization: organizationName })}</span>
             {owner.name}{" "}
             <a className="text-accent underline" href={`mailto:${owner.email}`}>
