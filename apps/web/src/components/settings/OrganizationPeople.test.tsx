@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, test, vi } from "vitest";
 
@@ -27,10 +27,11 @@ const directory: Outputs["organization"]["directory"] = {
   ],
 };
 
+const transferred = vi.fn();
 const mount = () =>
   render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <OrganizationPeople retentionDays={90} />
+      <OrganizationPeople retentionDays={90} onTransferred={transferred} />
     </QueryClientProvider>,
   );
 
@@ -68,6 +69,62 @@ test("the owner gives a restored person a role in a workspace, takes one away, a
   await user.click(within(dialog).getByRole("button", { name: "Delete" }));
   expect(fake.organization.archiveMember.mock.calls[0]![0]).toEqual({ userId: "sam" });
   expect(await screen.findByText("Sam deleted.")).toBeTruthy();
+});
+
+test("the owner removes a person from the organization without deleting them, after a confirmation", async () => {
+  fake.organization.directory.mockResolvedValue(directory);
+  fake.organization.removeMember.mockResolvedValue({ removed: true });
+  mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Remove from organization: Pat" }));
+  const dialog = screen.getByRole("dialog", { name: "Remove Pat from the organization?" });
+  expect(fake.organization.removeMember).not.toHaveBeenCalled();
+  await user.click(within(dialog).getByRole("button", { name: "Remove from organization" }));
+  expect(fake.organization.removeMember.mock.calls[0]![0]).toEqual({ userId: "pat" });
+  expect(fake.organization.archiveMember).not.toHaveBeenCalled();
+  expect(await screen.findByText("Pat removed from the organization.")).toBe(document.activeElement);
+});
+
+test("handing ownership over says what the owner keeps, and tells the page once done", async () => {
+  fake.organization.directory.mockResolvedValue(directory);
+  fake.organization.transferOwnership.mockResolvedValue({ transferred: true });
+  mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Make owner: Pat" }));
+  const dialog = screen.getByRole("dialog", { name: "Make Pat the owner?" });
+  expect(within(dialog).getByText(/you lose access to all of them until Pat gives you one/)).toBeTruthy();
+  expect(within(dialog).getByText(/Pat \(pat@example\.com\) gets every right/)).toBeTruthy();
+  await user.click(within(dialog).getByRole("button", { name: "Make owner" }));
+  expect(fake.organization.transferOwnership.mock.calls[0]![0]).toEqual({ userId: "pat" });
+  await waitFor(() => expect(transferred).toHaveBeenCalledWith("Pat"));
+});
+
+test("a transfer that ends after the page was left still tells it, so it reads its rights again", async () => {
+  fake.organization.directory.mockResolvedValue(directory);
+  let done!: () => void;
+  fake.organization.transferOwnership.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        done = () => resolve({ transferred: true });
+      }),
+  );
+  const { unmount } = mount();
+  const user = userEvent.setup();
+  await user.click(await screen.findByRole("button", { name: "Make owner: Pat" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Make owner" }));
+  await waitFor(() => expect(fake.organization.transferOwnership).toHaveBeenCalled());
+  unmount();
+  done();
+  await waitFor(() => expect(transferred).toHaveBeenCalledWith("Pat"));
+});
+
+test("an owner with roles of their own keeps only those", async () => {
+  const [ada, ...others] = directory.people;
+  const roles = directory.workspaces.map(({ workspaceId }) => ({ workspaceId, role: "member" as const }));
+  fake.organization.directory.mockResolvedValue({ ...directory, people: [{ ...ada!, workspaces: roles }, ...others] });
+  mount();
+  await userEvent.setup().click(await screen.findByRole("button", { name: "Make owner: Sam" }));
+  expect(within(screen.getByRole("dialog")).getByText(/You keep only your roles in Engineering and Operations\./)).toBeTruthy();
 });
 
 test("a refusal says why", async () => {

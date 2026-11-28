@@ -1,5 +1,5 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useRouter } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
@@ -17,15 +17,30 @@ export const Route = createFileRoute("/_app/settings/people")({ component: Peopl
 
 type Scope = { organizationId: string; workspaceId: string };
 
+/** Focuses what it is put on as it appears. */
+const focusOnMount = (element: HTMLElement | null) => element?.focus();
+
 function People() {
   const { t } = useTranslation("settings");
   const managed = useQuery(orpc.workspace.managed.queryOptions({ gcTime: 0 }));
   // Only the tab's workspace: another one the person manages is managed from its own tab.
   const { current } = useWorkspaces();
   const scope = managed.data?.find((m) => m.workspaceId === current?.workspaceId);
+  const router = useRouter();
+  const [newOwner, setNewOwner] = useState<string>();
+  // The root's guard holds the person's roles: read again, as their ownership is gone.
+  const transferred = async (name: string) => {
+    await router.invalidate();
+    setNewOwner(name);
+  };
   return (
     <>
       <PageHeader title={t("people.title")} />
+      {newOwner && (
+        <p ref={focusOnMount} tabIndex={-1} role="status" className="mb-4 text-sm text-muted">
+          {t("organizationPeople.madeOwner", { name: newOwner })}
+        </p>
+      )}
       {managed.isError ? (
         <p role="alert">{t("people.loadFailed")}</p>
       ) : !managed.data ? (
@@ -36,17 +51,17 @@ function People() {
         <p>{t("people.unavailable")}</p>
       )}
       {/* The people the organization deleted, and its data retention: its owner's only. */}
-      {current?.role === "owner" && <OwnerSections key={current.organizationId} />}
+      {current?.role === "owner" && <OwnerSections key={current.organizationId} onTransferred={transferred} />}
     </>
   );
 }
 
 /** What only the organization's owner manages: all its people, those it deleted, and its data retention. */
-function OwnerSections() {
+function OwnerSections({ onTransferred }: { onTransferred: (name: string) => void }) {
   const retention = useQuery(orpc.organization.retention.queryOptions());
   return (
     <>
-      {retention.data && <OrganizationPeople retentionDays={retention.data.personDays} />}
+      {retention.data && <OrganizationPeople retentionDays={retention.data.personDays} onTransferred={onTransferred} />}
       <DeletedPeople />
       <DataRetention />
     </>

@@ -15,9 +15,10 @@ const selectClass = "min-h-11 rounded-md border border-input bg-surface px-3 tex
 /**
  * Every person of the organization, for its owner, with the workspaces they have a role in: one
  * with no workspace role (just restored, say) is here too. The owner gives a person a role in a
- * workspace, takes it away, or deletes them.
+ * workspace, takes it away, removes them from the organization, deletes them, or hands them its
+ * ownership (`onTransferred`: the page's own rights have changed).
  */
-export function OrganizationPeople({ retentionDays }: { retentionDays: number }) {
+export function OrganizationPeople({ retentionDays, onTransferred }: { retentionDays: number; onTransferred: (name: string) => void }) {
   const { t } = useTranslation(["settings", "common"]);
   const directory = useQuery(orpc.organization.directory.queryOptions({ retry: false }));
   const status = useRef<HTMLParagraphElement>(null);
@@ -26,8 +27,17 @@ export function OrganizationPeople({ retentionDays }: { retentionDays: number })
   const assign = useMutation(orpc.organization.assign.mutationOptions());
   const unassign = useMutation(orpc.organization.unassign.mutationOptions());
   const archive = useMutation(orpc.organization.archiveMember.mutationOptions());
-  const failed = assign.error ?? unassign.error ?? archive.error;
-  const busy = assign.isPending || unassign.isPending || archive.isPending;
+  const remove = useMutation(orpc.organization.removeMember.mutationOptions());
+  // Who was confirmed as the new owner: a later read of the directory may not list them.
+  const [heir, setHeir] = useState("");
+  const transfer = useMutation(
+    orpc.organization.transferOwnership.mutationOptions({
+      // The mutation's own callback, not one of `mutate`'s: the page reads its rights again even if left meanwhile.
+      onSuccess: () => onTransferred(heir),
+    }),
+  );
+  const failed = assign.error ?? unassign.error ?? archive.error ?? remove.error ?? transfer.error;
+  const busy = assign.isPending || unassign.isPending || archive.isPending || remove.isPending || transfer.isPending;
   if (directory.isError)
     return (
       <p role="alert" className="mt-8">
@@ -36,11 +46,15 @@ export function OrganizationPeople({ retentionDays }: { retentionDays: number })
     );
   if (!directory.data) return null;
   const names = new Map(directory.data.workspaces.map((w) => [w.workspaceId, w.name]));
+  // What the owner keeps after handing ownership over: the roles they were given, if any.
+  const kept = directory.data.people.flatMap((p) => (p.role === "owner" ? p.workspaces.map((w) => names.get(w.workspaceId)!) : []));
   const act = (run: () => void) => {
     setSaid("");
     assign.reset();
     unassign.reset();
     archive.reset();
+    remove.reset();
+    transfer.reset();
     status.current?.focus();
     run();
   };
@@ -59,6 +73,13 @@ export function OrganizationPeople({ retentionDays }: { retentionDays: number })
             names={names}
             busy={busy}
             retentionDays={retentionDays}
+            kept={kept}
+            focusStatus={() => status.current?.focus()}
+            onRemove={() => act(() => remove.mutate({ userId: person.userId }, done(t("organizationPeople.left", { name: person.name }))))}
+            onTransfer={() => {
+              setHeir(person.name);
+              act(() => transfer.mutate({ userId: person.userId }));
+            }}
             onAssign={(workspaceId, role) =>
               act(() =>
                 assign.mutate(
@@ -97,8 +118,12 @@ function MemberRow({
   names,
   busy,
   retentionDays,
+  kept,
+  focusStatus,
   onAssign,
   onUnassign,
+  onRemove,
+  onTransfer,
   onDelete,
 }: {
   person: Member;
@@ -106,16 +131,20 @@ function MemberRow({
   names: Map<string, string>;
   busy: boolean;
   retentionDays: number;
+  kept: string[];
+  focusStatus: () => void;
   onAssign: (workspaceId: string, role: Role) => void;
   onUnassign: (workspaceId: string) => void;
+  onRemove: () => void;
+  onTransfer: () => void;
   onDelete: () => void;
 }) {
-  const { t } = useTranslation(["settings", "common"]);
+  const { t } = useTranslation("settings");
   const owner = person.role === "owner";
   const open = directory.workspaces.filter((w) => !person.workspaces.some((p) => p.workspaceId === w.workspaceId));
   const [workspaceId, setWorkspaceId] = useState("");
   const [role, setRole] = useState<Role>("member");
-  const [confirming, setConfirming] = useState(false);
+  const confirm = { busy, focusStatus };
   const picked = open.some((w) => w.workspaceId === workspaceId) ? workspaceId : (open[0]?.workspaceId ?? "");
   return (
     <li className="flex flex-col gap-3 px-5 py-4">
@@ -126,36 +155,34 @@ function MemberRow({
         </div>
         <span className="text-sm text-muted">{owner ? t("people.role.owner") : t("organizationPeople.member")}</span>
         {!owner && (
-          <Dialog
-            open={confirming}
-            onOpenChange={(next) => {
-              if (!next || !busy) setConfirming(next);
-            }}
-          >
-            <DialogTrigger asChild>
-              <Button size="sm" variant="outline" aria-disabled={busy} aria-label={t("people.deletePerson", { name: person.name })}>
-                {t("people.delete")}
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogTitle>{t("people.deleteConfirm", { name: person.name })}</DialogTitle>
-              <DialogDescription>{t("people.deleteEffect", { email: person.email, days: retentionDays })}</DialogDescription>
-              <div className="flex justify-end gap-2">
-                <DialogClose asChild>
-                  <Button variant="outline">{t("common:actions.cancel")}</Button>
-                </DialogClose>
-                <Button
-                  variant="destructive"
-                  onClick={() => {
-                    setConfirming(false);
-                    onDelete();
-                  }}
-                >
-                  {t("people.delete")}
-                </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <div className="flex flex-wrap gap-2">
+            <Confirm
+              {...confirm}
+              label={t("organizationPeople.makeOwner")}
+              aria={t("organizationPeople.makeOwnerPerson", { name: person.name })}
+              title={t("organizationPeople.makeOwnerConfirm", { name: person.name })}
+              effect={`${t("organizationPeople.makeOwnerEffect", { name: person.name, email: person.email })} ${
+                kept.length ? t("organizationPeople.makeOwnerKeeps", { workspaces: kept }) : t("organizationPeople.makeOwnerKeepsNone", { name: person.name })
+              }`}
+              onConfirm={onTransfer}
+            />
+            <Confirm
+              {...confirm}
+              label={t("organizationPeople.leave")}
+              aria={t("organizationPeople.leavePerson", { name: person.name })}
+              title={t("organizationPeople.leaveConfirm", { name: person.name })}
+              effect={t("organizationPeople.leaveEffect", { email: person.email })}
+              onConfirm={onRemove}
+            />
+            <Confirm
+              {...confirm}
+              label={t("people.delete")}
+              aria={t("people.deletePerson", { name: person.name })}
+              title={t("people.deleteConfirm", { name: person.name })}
+              effect={t("people.deleteEffect", { email: person.email, days: retentionDays })}
+              onConfirm={onDelete}
+            />
+          </div>
         )}
       </div>
       {owner ? (
@@ -233,5 +260,68 @@ function MemberRow({
         </>
       )}
     </li>
+  );
+}
+
+/** A button that asks before it acts; once confirmed, the focus goes to where the outcome is said. */
+function Confirm({
+  label,
+  aria,
+  title,
+  effect,
+  busy,
+  focusStatus,
+  onConfirm,
+}: {
+  label: string;
+  aria: string;
+  title: string;
+  effect: string;
+  busy: boolean;
+  focusStatus: () => void;
+  onConfirm: () => void;
+}) {
+  const { t } = useTranslation("common");
+  const [open, setOpen] = useState(false);
+  const submitted = useRef(false);
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next || !busy) setOpen(next);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline" aria-disabled={busy} aria-label={aria}>
+          {label}
+        </Button>
+      </DialogTrigger>
+      <DialogContent
+        onCloseAutoFocus={(event) => {
+          if (!submitted.current) return;
+          event.preventDefault();
+          submitted.current = false;
+          focusStatus();
+        }}
+      >
+        <DialogTitle>{title}</DialogTitle>
+        <DialogDescription className="wrap-anywhere">{effect}</DialogDescription>
+        <div className="flex justify-end gap-2">
+          <DialogClose asChild>
+            <Button variant="outline">{t("actions.cancel")}</Button>
+          </DialogClose>
+          <Button
+            variant="destructive"
+            onClick={() => {
+              submitted.current = true;
+              setOpen(false);
+              onConfirm();
+            }}
+          >
+            {label}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

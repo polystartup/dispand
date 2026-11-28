@@ -45,6 +45,9 @@ const makesStale: Record<string, string[]> = {
   "organization.unassign": ["organization", "workspace"],
   "organization.archiveMember": ["organization", "workspace"],
   "organization.restoreMember": ["organization", "workspace"],
+  "organization.removeMember": ["organization", "workspace"],
+  // The caller owns the organization no longer: its owner's reads would only be refused now.
+  "organization.transferOwnership": ["workspace"],
   // The deleted one's own read would answer "not found" (and be retried) while its screen is still
   // open, so only the lists, and what went with it, are read again.
   "skills.delete": ["skills.list"],
