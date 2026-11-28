@@ -8,6 +8,12 @@ permissions:
   contents: read
   packages: write
 
+# One run at a time, in the order of the pushes: an older run finishing last would tag an older
+# image `latest`, and installs follow `latest`. A newer push replaces a run still waiting.
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
 jobs:
   publish:
     runs-on: ubuntu-latest

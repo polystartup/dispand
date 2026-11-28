@@ -47,6 +47,11 @@ jobs:
   publish:
     if: github.event_name == 'push' || inputs.tag != ''
     runs-on: ubuntu-latest
+    # `latest` in the order of the pushes, as publish.yml; a release's tag in a group of its own,
+    # so a push waiting behind it never replaces it. Pull requests' checks aren't held.
+    concurrency:
+      group: runner-images-${{ inputs.tag || 'latest' }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
