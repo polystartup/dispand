@@ -9,6 +9,16 @@ export const CLOUD_KINDS = ["anthropic", "openai", "openai-compatible"] as const
 
 export const Name = z.string().trim().min(1).max(100);
 
+// URL.canParse is newer than the browsers this runs in.
+function parses(address: string): boolean {
+  try {
+    new URL(address);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** `address` without a user name and password (it is returned as it is when it has none). */
 export function withoutCredentials(address: string): string {
   const url = new URL(address);
@@ -26,10 +36,7 @@ export const CloudFields = z.object({
   baseUrl: z
     .url({ protocol: /^https?$/ })
     .max(2000)
-    .refine(
-      (address) => !URL.canParse(address) || withoutCredentials(address) === address,
-      "an address carries no user name or password: the key has its own field",
-    )
+    .refine((address) => !parses(address) || withoutCredentials(address) === address, "an address carries no user name or password: the key has its own field")
     .optional(),
   // Omitted on update: keep the stored key. "": no key (clears it on update).
   apiKey: z.string().trim().max(4000).optional(),
