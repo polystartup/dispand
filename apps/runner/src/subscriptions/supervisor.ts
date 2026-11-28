@@ -8,7 +8,6 @@ import { mkdirSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { setTimeout as delay } from "node:timers/promises";
 import { RunnerToServer, type ServerToRunner, type SubscriptionStatus } from "@dispand/runner-protocol";
 import { CodexRpc } from "../codex/rpc.ts";
 import { writeDurable } from "../durable.ts";
@@ -163,14 +162,10 @@ export class Subscriptions {
    * Runs `use`, which opens an app-server on the Codex login store, alone: after every earlier
    * one, the status's reads, the renewal and each credential source's reads included. Codex may
    * renew a token on a read too, and a refresh token used twice ends the login. Each holds the
-   * store until it settles, or for its timeout and a second more: one whose app-server ignores
-   * its stop fails then, and wedges no other.
+   * store until its app-server has exited; only the status stops waiting (`status`).
    */
   codexStore<T>(use: () => Promise<T>): Promise<T> {
-    const late = (this.options.timeoutMs ?? 15_000) + 1000;
-    const turn = this.store.then(() =>
-      Promise.race([use(), delay(late, undefined, { ref: false }).then(() => Promise.reject(new Error("the Codex app-server didn't stop in time")))]),
-    );
+    const turn = this.store.then(use);
     this.store = turn.catch(() => {});
     return turn;
   }
@@ -211,7 +206,12 @@ export class Subscriptions {
     const out: SubscriptionStatus[] = [];
     const codex = this.codex;
     if (codex && (await this.stamp()) !== "none") {
-      const identity = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).catch(() => undefined);
+      // A hard deadline, its wait for the store included: an app-server that ignores its stop must not hold up the runner's hello.
+      let timer: NodeJS.Timeout | undefined;
+      const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), codex.timeoutMs + 1000)));
+      const identity = await Promise.race([this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).catch(() => undefined), late]).finally(
+        () => clearTimeout(timer),
+      );
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);
