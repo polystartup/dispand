@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -75,17 +75,11 @@ async function supervisor(env: Record<string, string> = {}) {
   });
   const subscriptions = new Subscriptions({ configDir, codexPath: () => codex.path, env: codex.env });
   const onSignInNeeded = vi.fn();
-  const credential = new CodexSubscription({
-    subscriptions,
-    configDir,
-    codexPath: () => codex.path,
-    env: codex.env,
-    identity: identityDigest("user-1", "acct-1"),
-    onSignInNeeded,
-  });
+  const options = { subscriptions, configDir, codexPath: () => codex.path, env: codex.env };
+  const credential = new CodexSubscription({ ...options, identity: identityDigest("user-1", "acct-1"), onSignInNeeded });
   const refreshes = async () =>
     (await codex.received()).filter((m) => m.method === "account/read" && (m.params as { refreshToken?: boolean }).refreshToken).length;
-  return { home, sessionsFile, authFile, subscriptions, credential, onSignInNeeded, refreshes, received: codex.received };
+  return { home, sessionsFile, authFile, subscriptions, options, credential, onSignInNeeded, refreshes, received: codex.received };
 }
 
 const listen = async (handler: Parameters<typeof createServer>[1]) => {
@@ -270,6 +264,25 @@ test("reads and renewals of the store never overlap", async () => {
     "accountSession/list",
     "accountSession/list",
   ]);
+});
+
+test("every reader of the Codex store reaches it one at a time", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "runs-"));
+  made.push(dir);
+  const runs = join(dir, "runs");
+  // Each app-server lives long enough that two started together would overlap.
+  const s = await supervisor({ FAKE_CODEX_RUNS: runs, FAKE_CODEX_INIT_DELAY: "150" });
+  const before = await s.credential.read();
+  // Another source on the same store, as a re-enrollment leaves one.
+  const other = new CodexSubscription({ ...s.options, identity: identityDigest("user-1", "acct-1"), onSignInNeeded: vi.fn() });
+  await writeFile(runs, "");
+  const enrolled = s.subscriptions.enroll("codex", "c".repeat(32), (msg) => {
+    queueMicrotask(() => s.subscriptions.enrolled({ type: "subscription.enrolled", askId: msg.askId, enrollmentId: "enr_2" }));
+    return true;
+  });
+  await Promise.all([s.subscriptions.status(), s.credential.read(), s.credential.renew(before!), other.read(), s.subscriptions.status(), enrolled]);
+  // Status twice, enroll's status, three reads, the renewal and its read: never two app-servers at once.
+  expect(await readFile(runs, "utf8")).toBe("+-".repeat(8));
 });
 
 test("requests refused with the same token share one renewal", async () => {

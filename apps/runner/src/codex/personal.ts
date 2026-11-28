@@ -3,9 +3,7 @@
 // the access token and account header are read here, from the supervisor's own login store, at
 // each use, and kept in memory only. Renewal goes through the supervisor's one serialized renewal
 // (`Subscriptions.renew`): refresh tokens rotate, so no other copy of the login may ever renew it.
-import { tmpdir } from "node:os";
-import { identityDigest, subscriptionEnv, type Subscriptions } from "../subscriptions/supervisor.ts";
-import { CodexRpc } from "./rpc.ts";
+import { identityDigest, storeServer, subscriptionEnv, type Subscriptions } from "../subscriptions/supervisor.ts";
 
 /** The headers the relay sets on a model request it forwards to the provider: never logged, never sent to a worker. */
 export type CodexCredential = { authorization: string; "chatgpt-account-id": string };
@@ -30,8 +28,9 @@ export class CodexSubscription {
   /** Set once the login stopped serving, so the sign-in is asked for once; cleared when it serves again. */
   private told = false;
   /**
-   * Every read and renewal of this store, one at a time: Codex may renew a token near its expiry
-   * on a read too, and a refresh token used twice ends the login.
+   * This source's reads and renewals in order: a read waits for the renewal before it, so the
+   * CLI's next request carries the renewed token. Each app-server they open on the store waits
+   * its turn with every other reader of it (`Subscriptions.codexStore`).
    */
   private queue: Promise<unknown> = Promise.resolve();
 
@@ -89,22 +88,25 @@ export class CodexSubscription {
     const path = this.o.codexPath();
     if (!path) return undefined;
     const timeoutMs = this.o.timeoutMs ?? 15_000;
-    let rpc: CodexRpc | undefined;
-    try {
-      rpc = await CodexRpc.spawn(path, subscriptionEnv(this.o.configDir, "codex", this.o.env), tmpdir(), AbortSignal.timeout(timeoutMs));
-      const auth = await rpc.request("getAuthStatus", { includeToken: true, refreshToken: false });
-      const { activeSessionId, sessions } = await rpc.request("accountSession/list", {});
-      const active = sessions.find((s) => s.sessionId === activeSessionId);
-      if (auth.authMethod !== "chatgpt" || !auth.authToken || !active?.userId || !active.selectedWorkspaceAccountId) return this.deny();
-      // The user and the account both: a renewal or a sign-in that changed either serves nothing.
-      if (identityDigest(active.userId, active.selectedWorkspaceAccountId) !== this.o.identity) return this.deny();
-      this.told = false;
-      return { authorization: `Bearer ${auth.authToken}`, "chatgpt-account-id": active.selectedWorkspaceAccountId };
-    } catch {
+    const read = await this.o.subscriptions
+      .codexStore(async () => {
+        const rpc = await storeServer(path, subscriptionEnv(this.o.configDir, "codex", this.o.env), timeoutMs);
+        try {
+          const auth = await rpc.request("getAuthStatus", { includeToken: true, refreshToken: false });
+          const { activeSessionId, sessions } = await rpc.request("accountSession/list", {});
+          return { auth, active: sessions.find((s) => s.sessionId === activeSessionId) };
+        } finally {
+          await rpc.close();
+        }
+      })
       // The reason stays here: an app-server's error may quote what it read.
-      return undefined;
-    } finally {
-      await rpc?.close();
-    }
+      .catch(() => undefined);
+    if (!read) return undefined;
+    const { auth, active } = read;
+    if (auth.authMethod !== "chatgpt" || !auth.authToken || !active?.userId || !active.selectedWorkspaceAccountId) return this.deny();
+    // The user and the account both: a renewal or a sign-in that changed either serves nothing.
+    if (identityDigest(active.userId, active.selectedWorkspaceAccountId) !== this.o.identity) return this.deny();
+    this.told = false;
+    return { authorization: `Bearer ${auth.authToken}`, "chatgpt-account-id": active.selectedWorkspaceAccountId };
   }
 }

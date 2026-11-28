@@ -349,7 +349,7 @@ async function run(args: string[]) {
   };
   // Dispand's word on each personal grant, asked before every request its relay sends.
   const grantChecks = new GrantChecks((msg) => conn.reply(msg));
-  /** One credential source per harness and enrolled identity: every read and renewal of its login, one at a time. */
+  /** One credential source per harness and enrolled identity; each app-server on a login store waits its turn there (`Subscriptions.codexStore`). */
   const credentials = new Map<string, CodexSubscription | ClaudeSubscription>();
   const credential = (harness: SubscriptionHarness, enrollmentId: string) => {
     const enrollment = readEnrollment(dir, harness);

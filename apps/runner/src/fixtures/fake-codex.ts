@@ -17,6 +17,9 @@
 // - FAKE_CODEX_EXIT_ON: a method that makes it exit at once, without replying.
 // - FAKE_CODEX_HANG_ON: a method it never answers.
 // - FAKE_CODEX_PID: a file `app-server` writes its pid to.
+// - FAKE_CODEX_RUNS: a file each `app-server` appends "+" to when it starts and "-" when it exits.
+// - FAKE_CODEX_INIT_DELAY: milliseconds `initialize` waits before its reply.
+// - FAKE_CODEX_IGNORE_TERM: when set, `app-server` ignores SIGTERM and stays up once its stdin closes.
 // - FAKE_CODEX_ENV_LOG: a file `app-server` writes its `DISPAND_*` variables to, as JSON.
 // - FAKE_CODEX_BATCH: when set, what it sends in one tick goes out in one write.
 // - FAKE_CODEX_TURN_START_DELAY: milliseconds `turn/start` waits before its reply and `turn/started`.
@@ -41,6 +44,16 @@ if (process.argv[2] === "--version") {
 }
 
 if (env.FAKE_CODEX_PID) writeFileSync(env.FAKE_CODEX_PID, String(process.pid));
+if (env.FAKE_CODEX_IGNORE_TERM) {
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1000);
+}
+if (env.FAKE_CODEX_RUNS) {
+  const runs = env.FAKE_CODEX_RUNS;
+  appendFileSync(runs, "+");
+  process.on("exit", () => appendFileSync(runs, "-"));
+  process.on("SIGTERM", () => process.exit(0));
+}
 if (env.FAKE_CODEX_ENV_LOG) writeFileSync(env.FAKE_CODEX_ENV_LOG, JSON.stringify(Object.fromEntries(Object.entries(env).filter(([k]) => k.startsWith("DISPAND_")))));
 let batch: string[] | undefined;
 const send = (msg: unknown) => {
@@ -113,7 +126,9 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   if (msg.method === "account/read" && msg.params?.refreshToken && env.FAKE_CODEX_REFRESH_WRITES_LOGIN) appendFileSync(`${env.CODEX_HOME}/auth.json`, " ");
   if (msg.method === "initialize") {
     initialized = true;
-    reply({ userAgent: "fake", codexHome: "/nonexistent", platformFamily: "unix", platformOs: "linux" });
+    const init = { userAgent: "fake", codexHome: "/nonexistent", platformFamily: "unix", platformOs: "linux" };
+    if (env.FAKE_CODEX_INIT_DELAY) setTimeout(() => reply(init), Number(env.FAKE_CODEX_INIT_DELAY));
+    else reply(init);
   } else if (!initialized) send({ id: msg.id, error: { code: -32600, message: "Not initialized" } });
   else if (msg.method === "account/read" && msg.params?.refreshToken && env.FAKE_CODEX_REFRESH === "fail") send({ id: msg.id, error: { code: -32603, message: "refresh token revoked" } });
   else if (msg.method === "account/read") {
