@@ -68,9 +68,10 @@ export default defineConfig({
   // each on its own server and database so CI runs them in parallel. Each starts with its setup
   // (auth.setup.ts: the owner), then auth.spec.ts and settings.spec.ts, and ends with yz-audit.spec.ts
   // and zzz-telemetry.spec.ts, which check that nothing its chain did leaked into telemetry or Audit.
-  // A spec makes what it needs (an agent, Stem) with e2e/fixtures.ts, so it passes alone; what still
-  // holds the order is the specs that assert an empty list (settings, tools, workflows: they come
-  // before what fills it) and zzz-telemetry, which reads the whole chain's telemetry. "main-1" takes
+  // A spec makes what it needs (an agent, Stem) with e2e/fixtures.ts, so it passes alone, and asserts
+  // only on what it made (a list is never asserted empty: the unit tests do that). What still holds the
+  // order is settings.spec.ts, which starts Stem on a first launch (so it comes before any spec that
+  // calls `stem`), and zzz-telemetry, which reads the whole chain's telemetry. "main-1" takes
   // every spec the others don't name, so a new spec always runs. "custom-setup" and "assistant" (the
   // day-one acceptance) need an app with nothing set up (first launch: no harness, no Assistant).
   projects,

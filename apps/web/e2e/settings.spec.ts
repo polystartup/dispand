@@ -57,15 +57,10 @@ test("an owner revokes an invitation, then hands off a fresh link and sees the r
   }
 });
 
-test("empty states, then a runner pairs, a harness goes online and an agent is created", async ({ page }) => {
+test("a runner pairs, a harness goes online and an agent is created", async ({ page }) => {
   await openApp(page);
 
-  await page.goto("/settings/agents");
-  await expect(page.getByText("No agent yet")).toBeVisible();
-  await expect(page.getByRole("link", { name: "Add a harness first" })).toBeVisible();
-
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Harnesses" }).click();
-  await expect(page.getByText("No harness yet")).toBeVisible();
+  await page.goto("/settings/harnesses");
   await page.getByRole("button", { name: "New harness" }).click();
 
   const sheet = page.getByRole("dialog");

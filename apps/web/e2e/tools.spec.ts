@@ -37,8 +37,6 @@ test("adding a tool with a header lists its actions, and the header shows as set
   ]);
   await openApp(page);
   await page.goto("/settings/tools");
-  await expect(page.getByText("No tool yet")).toBeVisible();
-  await shots(page, "tools-empty");
 
   await page.getByRole("button", { name: "Add MCP server" }).click();
   await page.getByLabel("Name").fill("GitHub");
@@ -74,7 +72,7 @@ test("adding a tool with a header lists its actions, and the header shows as set
   expect(server.requests.every((h) => h.authorization === "Bearer e2e-s3cret")).toBe(true);
 
   await page.getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByText("No tool yet")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^GitHub/ })).toHaveCount(0);
 });
 
 test("the catalog searches its entries, shows a runner snippet without a key, and asks for an HTTP entry's settings", async ({ page }) => {
