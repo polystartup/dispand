@@ -3,10 +3,11 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
-import { expect as baseExpect, test, type Page } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { lastResult, startFakeModel, type FakeModel } from "./fake-model.ts";
 import { hydrated } from "./hydrated.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // The plugin lifecycle's acceptance, on the law-firm fixture: Stem installs it with its definitions
 // on a proposal the owner approves in the chat, override an agent and a skill file, update from a new
@@ -20,17 +21,6 @@ test.describe.configure({ timeout: 180_000 });
 
 let model: FakeModel | undefined;
 test.afterAll(() => model?.close());
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 const env = {
   ...process.env,

@@ -1,19 +1,9 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // After the specs that expect no agent, and before zz-questions (it counts the Inbox): this one adds a Job and leaves nothing pending.
-
-/** Calls an API procedure as the signed-in owner (setup that has no screen worth driving). */
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 let runner: FakeRunner | undefined;
 test.afterAll(() => runner?.close());

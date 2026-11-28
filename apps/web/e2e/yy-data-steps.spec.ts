@@ -1,21 +1,11 @@
-import { expect as baseExpect, test, type Page } from "@playwright/test";
+import { expect as baseExpect, test } from "@playwright/test";
 import { FakeRunner } from "./fake-runner.ts";
 import { openApp } from "./session.ts";
+import { rpc, stem } from "./fixtures.ts";
 
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    // Retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 // Runs after y-journey (agents and workflows exist by then) and before zz-questions.
 let runner: FakeRunner | undefined;
@@ -32,6 +22,7 @@ test("data steps: fields wired to the chat, rewired between agents, and a run wr
     kind: "claude-code",
     permissionMode: "default",
   });
+  await stem(page, harness.id);
   const agent = await rpc<{ id: string }>(page, "agents/create", { name: "Project initiator", harnessId: harness.id, systemPrompt: "" });
   const table = await rpc<{ id: string }>(page, "tables/create", { name: "Ventures" });
   for (const [name, type] of [

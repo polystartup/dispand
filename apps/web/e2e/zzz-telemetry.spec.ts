@@ -1,7 +1,8 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { startFakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
 import { AUDIT_SENTINELS, auditRows } from "./audit.ts";
 import { openApp } from "./session.ts";
+import { rpc } from "./fixtures.ts";
 
 // Last of each "main-N" chain: after every other spec of the chain has run, with sentinel secrets
 // and content of its own, nothing Dispand exported to its collector, and no Audit row, holds a
@@ -17,17 +18,6 @@ const SENTINELS = {
   password: "correct horse battery",
   argument: "sentinel-tool-argument-36",
 };
-
-async function rpc<T>(page: Page, path: string, input?: unknown): Promise<T> {
-  // maxRetries retries only ECONNRESET: a reused keep-alive socket the server closed while idle.
-  const res = await page.request.post(`/api/rpc/${path}`, {
-    maxRetries: 1,
-    headers: { "x-csrf-token": "orpc" },
-    data: input === undefined ? {} : { json: input },
-  });
-  expect(res.ok(), `${path}: ${res.status()}`).toBe(true);
-  return ((await res.json()) as { json: T }).json;
-}
 
 test("telemetry exported during the whole suite holds no secret and no content", async ({ page }) => {
   const calls: unknown[] = [];
