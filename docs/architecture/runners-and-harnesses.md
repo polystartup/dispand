@@ -43,7 +43,10 @@
   `hello` retries. Revoking a runner (Settings › Harnesses › Runners) clears its token and
   closes its socket; it is refused while a harness uses the runner. A workspace manager can call
   `runners.refreshClis` to send a live runner a `clis.request`. Its matching `clis.replied`
-  replaces the stored CLI inventory, including when the report is empty.
+  replaces the stored CLI inventory, including when the report is empty. An unasked one is
+  ignored, except that one carrying `subscriptions` (the runner sends it as soon as a personal
+  subscription stops serving, with every enrolled one in it) updates those as `hello` does, and
+  never the inventory; a server from before this drops it, and the next report says the same.
   Personal CLI subscriptions (protocol 37, `runner-protocol/src/subscriptions.ts`): the runner
   reports each subscription signed in on its supervisor as a digest of the provider identity,
   never a token; a personal action's `session.start` carries a `grant` with a short relative

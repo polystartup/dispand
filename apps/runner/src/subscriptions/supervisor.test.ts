@@ -185,6 +185,31 @@ test("repeated renewal failures produce a single sign-in-needed status", async (
   expect(await refreshes()).toBe(RENEWAL_ATTEMPTS + 1);
 });
 
+test("once renewal gives up, Dispand is told at once with every enrolled subscription, or not at all", async () => {
+  const { subs, configDir, codex } = await setup({ FAKE_CODEX_REFRESH: "fail" });
+  vi.spyOn(console, "error").mockImplementation(() => {});
+  const enrolled = subs.enroll("codex", "c".repeat(32), (msg) => {
+    queueMicrotask(() => subs.enrolled({ type: "subscription.enrolled", askId: msg.askId, enrollmentId: "enr_1" }));
+    return true;
+  });
+  expect(await enrolled).toMatchObject({ ok: true });
+  for (let i = 0; i < RENEWAL_ATTEMPTS; i++) await subs.renew();
+  const sent: unknown[] = [];
+  await subs.signInNeeded("codex", (m) => sent.push(m) > 0);
+  expect(sent).toEqual([
+    {
+      type: "clis.replied",
+      requestId: expect.any(String),
+      clis: { subscriptions: [{ harness: "codex", identity: identityDigest("user-1", "acct-1"), signInNeeded: true }] },
+    },
+  ]);
+  // Codex's read failed: a report without it would end its enrollment, so none goes.
+  const unread = new Subscriptions({ configDir, codexPath: () => codex.path, env: { ...codex.env, FAKE_CODEX_EXIT_ON: "account/read" } });
+  expect(await unread.status()).toEqual([]);
+  await unread.signInNeeded("codex", (m) => sent.push(m) > 0);
+  expect(sent).toHaveLength(1);
+});
+
 test("`enroll` reaches the supervisor through a socket only its user can open", async () => {
   const configDir = await mkdtemp(join(tmpdir(), "control-"));
   made.push(configDir);

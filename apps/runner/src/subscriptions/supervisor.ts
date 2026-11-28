@@ -17,6 +17,7 @@ import type { Launch } from "../sandbox/worker.ts";
 export type Harness = SubscriptionStatus["harness"];
 type Enroll = Extract<RunnerToServer, { type: "subscription.enroll" }>;
 type Enrolled = Extract<ServerToRunner, { type: "subscription.enrolled" }>;
+type CliReply = Extract<RunnerToServer, { type: "clis.replied" }>;
 
 /** The supervisor's login homes, in the runner's config folder: no worker mounts it and no session may touch it. */
 export function subscriptionsDir(configDir: string): string {
@@ -241,6 +242,19 @@ export class Subscriptions {
     const claude = readClaudeLogin(this.options.configDir);
     if (claude) out.push({ harness: "claude-code", identity: claudeIdentity(claude), signInNeeded: await this.givenUp("claude-code") });
     return out;
+  }
+
+  /**
+   * A credential source of `harness` stopped serving: says so here, and tells Dispand at once (an
+   * unasked `clis.replied` with the statuses alone) instead of at the next report. Only with every
+   * subscription enrolled here in it: a report without one (its read failed, or it signed out)
+   * would end its enrollment, which the next `hello` or refresh settles instead.
+   */
+  async signInNeeded(harness: Harness, send: (msg: CliReply) => boolean): Promise<void> {
+    console.error(`dispand-runner: the personal ${harness} subscription can't serve its enrollment: sign in again with \`dispand-runner sign-in ${harness}\``);
+    const status = await this.status();
+    const enrolled = (["codex", "claude-code"] as const).filter((h) => readEnrollment(this.options.configDir, h));
+    if (enrolled.every((h) => status.some((s) => s.harness === h))) send({ type: "clis.replied", requestId: randomUUID(), clis: { subscriptions: status } });
   }
 
   /**
