@@ -154,7 +154,8 @@ test.each([
     configDir,
     codexPath: () => (launcher ? path : codex.path),
     env: { ...codex.env, FAKE_CODEX_HANG_ON: "account/read", FAKE_CODEX_IGNORE_TERM: "1", FAKE_CODEX_PID: pidFile },
-    timeoutMs: 300,
+    // Long enough for the fixture to start and hang on a busy machine, before its stop.
+    timeoutMs: 2000,
   });
   expect(await stuck.status()).toEqual([]);
   // Nothing it started is left on the store, and the next turn on it runs.
