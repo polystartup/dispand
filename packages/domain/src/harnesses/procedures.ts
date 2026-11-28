@@ -9,13 +9,12 @@ import { newId } from "../ids.ts";
 import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
-import { apiKeyAad, CLOUD_KINDS, loadCloudHarness, type CloudKind } from "./cloud.ts";
+import { apiKeyAad, loadCloudHarness } from "./cloud.ts";
+import { CloudFields, cloudRefusal, type CloudKind, isLoopback, Name } from "./model.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 /** A model the CLI is started with (`--model`): an alias like `opus` or a full model id. */
 export const ModelName = StorableText(100).trim().min(1);
-
-const Name = z.string().trim().min(1).max(100);
 
 const CliShared = {
   // Optional: CLI harnesses came first, and callers still send them without a type.
@@ -28,22 +27,6 @@ const CliShared = {
 const ClaudeFields = z.object({ ...CliShared, kind: z.literal("claude-code"), permissionMode: ClaudePermissionMode });
 const CodexFields = z.object({ ...CliShared, kind: z.literal("codex"), permissionMode: CodexPermissionMode });
 
-const CloudFields = z.object({
-  type: z.literal("cloud"),
-  name: Name,
-  kind: z.enum(CLOUD_KINDS),
-  baseUrl: z
-    .url({ protocol: /^https?$/ })
-    .max(2000)
-    .optional(),
-  // Omitted on update: keep the stored key. "": no key (clears it on update).
-  apiKey: z.string().trim().max(4000).optional(),
-  model: z.string().trim().min(1).max(200),
-  systemPrompt: StorableText(100_000),
-  maxTokens: z.int().min(1).max(1_000_000).optional(),
-  effort: z.enum(["low", "medium", "high"]).optional(),
-  temperature: z.number().min(0).max(2).optional(),
-});
 type CloudFields = z.infer<typeof CloudFields>;
 
 const Fields = z.union([ClaudeFields, CodexFields, CloudFields]);
@@ -75,29 +58,15 @@ function toHarness(row: Row) {
     : { ...cli, kind: "claude-code" as const, permissionMode: row.permissionMode! };
 }
 
-/** Plain http only reaches this machine: a key never crosses the network in clear. */
-export function isLoopback(url: URL): boolean {
-  const host = url.hostname;
-  return host === "localhost" || host === "[::1]" || /^127\.\d+\.\d+\.\d+$/.test(host);
-}
-
 function bad(key: MessageKey, values?: MessageValues): never {
   throw new ORPCError("BAD_REQUEST", message(key, values));
-}
-
-/** The rules the schema can't say alone. `hasKey`: whether the harness will hold a key. */
-function checkCloud(kind: CloudKind, baseUrl: string | undefined, hasKey: boolean) {
-  if (kind === "openai-compatible" && !baseUrl) bad("harness.cloud.needsBaseUrl");
-  if (kind !== "openai-compatible" && !hasKey) bad("harness.cloud.needsKey");
-  if (hasKey && baseUrl && new URL(baseUrl).protocol === "http:" && !isLoopback(new URL(baseUrl))) {
-    bad("harness.cloud.keyHttps");
-  }
 }
 
 function cloudValues(fields: CloudFields, id: string, secrets: SecretBox, keptSealed: string | null) {
   if (fields.temperature !== undefined && fields.kind !== "openai-compatible") bad("harness.cloud.temperature");
   const sealed = fields.apiKey === undefined ? keptSealed : fields.apiKey === "" ? null : secrets.seal(fields.apiKey, apiKeyAad(id));
-  checkCloud(fields.kind, fields.baseUrl, sealed !== null);
+  const refused = cloudRefusal(fields.kind, fields.baseUrl, sealed !== null);
+  if (refused) bad(refused.key);
   return {
     type: "cloud" as const,
     name: fields.name,
