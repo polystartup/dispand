@@ -33,7 +33,7 @@ import { tools } from "../tools/procedures.ts";
 import { triggers } from "../triggers/procedures.ts";
 import { skills } from "../skills/procedures.ts";
 import { runs, workflows } from "../workflows/procedures.ts";
-import { signedIn, base } from "./context.ts";
+import { base, signedInProcedure } from "./context.ts";
 import { message } from "../messages/index.ts";
 
 /** Constant-time comparison (digests have equal length whatever the inputs). */
@@ -130,7 +130,7 @@ const status = base.handler(async ({ context }) => {
   return { needsSetup: !row || row.n === 0, enrollsAccounts: true };
 });
 
-const me = base.use(signedIn).handler(async ({ context }) => ({ ownerId: context.ownerId }));
+const me = signedInProcedure.handler(async ({ context }) => ({ ownerId: context.ownerId }));
 
 export const router = {
   assistantCommands,

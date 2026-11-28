@@ -7,7 +7,7 @@ import { type EventActor, events, fields as fieldsTable, rows as rowsTable, runs
 import { newId } from "../ids.ts";
 import { recordAudit } from "../audit/record.ts";
 import { isMessageKey, type Message, message, say } from "../messages/index.ts";
-import { base, inStreamScope, member, untilRefused, validationKey } from "../rpc/context.ts";
+import { inStreamScope, untilRefused, validationKey, memberProcedure } from "../rpc/context.ts";
 import { type Cell, CELL_LIMITS, cellSchema, cellText, type FieldSchema } from "./fields.ts";
 import { adoptAttachments, attachmentsById, lockAttachments, type AttachmentView } from "./files.ts";
 import { type Filter, filterValue, queryProblem, RowQuery, type Sort } from "./query.ts";
@@ -18,7 +18,6 @@ import { meter } from "../telemetry/index.ts";
 // a schema change (which locks it `FOR UPDATE`) finishes first, and the write is checked
 // against the fields as they are after it.
 
-const owner = base.use(member);
 const counts = meter("data");
 
 export const MAX_PAGE = 500;
@@ -388,7 +387,7 @@ const AnyCell = z.union([
 ]);
 const Values = z.record(z.string().max(64), AnyCell).refine((v) => Object.keys(v).length <= MAX_FIELDS, `At most ${MAX_FIELDS} values`);
 
-const list = owner
+const list = memberProcedure
   .input(
     z.object({
       tableId: z.string(),
@@ -422,7 +421,7 @@ const list = owner
     };
   });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const row = await requireRow(context.db, context.access.workspaceId, input.id);
   const fields = (await context.db.select().from(fieldsTable).where(eq(fieldsTable.tableId, row.tableId)).orderBy(asc(fieldsTable.position))).map(schemaOf);
   const visible = fields
@@ -439,7 +438,7 @@ const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, co
   } satisfies RowDetails;
 });
 
-const create = owner.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
+const create = memberProcedure.input(z.object({ tableId: z.string(), values: Values.optional() })).handler(async ({ input, context }) => {
   // The caller's table, as the other row procedures find it; the write then checks its workspace.
   await requireTable(context.db, context.access.workspaceId, input.tableId);
   const workspaceId = context.access.workspaceId;
@@ -459,7 +458,7 @@ const create = owner.input(z.object({ tableId: z.string(), values: Values.option
 });
 
 /** Sets the given cells; the others stay as they are. */
-const update = owner.input(z.object({ id: z.string(), values: Values })).handler(async ({ input, context }) => {
+const update = memberProcedure.input(z.object({ id: z.string(), values: Values })).handler(async ({ input, context }) => {
   const current = await requireRow(context.db, context.access.workspaceId, input.id);
   const workspaceId = context.access.workspaceId;
   const row = written(
@@ -482,7 +481,7 @@ const update = owner.input(z.object({ id: z.string(), values: Values })).handler
  * Adds and removes files of one files cell, applied to the cell as stored, in one transaction that
  * holds the row: two changes made at once (two tabs) both land, and none drops the other's files.
  */
-const editFiles = owner
+const editFiles = memberProcedure
   .input(
     z.object({
       id: z.string(),
@@ -570,7 +569,7 @@ export async function clearReferences(
 }
 
 /** Deletes rows of one of the owner's tables: an id of another owner or table deletes nothing. */
-const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PAGE) })).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PAGE) })).handler(async ({ input, context }) => {
   const ids = [...new Set(input.ids)];
   const found = await context.db
     .select({ id: rowsTable.id, tableId: rowsTable.tableId })
@@ -627,7 +626,7 @@ const remove = owner.input(z.object({ ids: z.array(z.string()).min(1).max(MAX_PA
 });
 
 /** Every change of these tables (the owner's), as it is published. */
-const stream = owner.input(z.object({ tableIds: z.array(z.string()).min(1).max(20) })).handler(async function* ({ input, context, signal }) {
+const stream = memberProcedure.input(z.object({ tableIds: z.array(z.string()).min(1).max(20) })).handler(async function* ({ input, context, signal }) {
   const ids = [...new Set(input.tableIds)];
   // Subscribed before anything waits, so no change made once the stream is read is missed;
   // nothing is yielded unless every table is the owner's.

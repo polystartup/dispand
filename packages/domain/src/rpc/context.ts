@@ -374,6 +374,16 @@ export const orgOwner = signedIn.concat(async ({ context, next }) => {
   );
 });
 
+// Each procedure starts from the base named for whom it admits, so its gate reads where it is defined.
+/** Anyone signed in, a person or a Job (`signedIn`): the procedure checks its own resource. */
+export const signedInProcedure = base.use(signedIn);
+/** A member of the workspace the request names, or a Job in its run's (`member`). */
+export const memberProcedure = base.use(member);
+/** A member who manages the workspace, or a Job while the person behind it does (`manager`). */
+export const managerProcedure = base.use(manager);
+/** The owner of the organization the request names, never a Job (`orgOwner`). */
+export const orgOwnerProcedure = base.use(orgOwner);
+
 /**
  * A stream's body runs in whoever calls `next()`, with no scope, long after the middlewares
  * returned: each of its reads re-admits the caller first. The session must still be the one that

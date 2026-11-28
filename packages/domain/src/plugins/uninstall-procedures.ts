@@ -16,13 +16,13 @@ import {
 import { pluginNativeKey } from "../skills/native.ts";
 import { message } from "../messages/index.ts";
 import { lockConsults } from "../engine/consults.ts";
-import { type InitialContext } from "../rpc/context.ts";
+import { type InitialContext, managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { type Tx } from "../skills/procedures.ts";
 import { checkChoices, type Element, inUse } from "./closure.ts";
 import { forgetConflicts } from "./resolve.ts";
 import { canonicalHash } from "../platform/approvals.ts";
 import { leaveDeletedTables } from "../platform/rights.ts";
-import { reader, writer, acted, Id, PluginRow, findPlugin } from "./common.ts";
+import { acted, Id, PluginRow, findPlugin } from "./common.ts";
 
 /**
  * Locks every element row of the plugin, as their own writes lock them, before a removal works
@@ -48,7 +48,7 @@ const removalReview = (elements: Element[]) => canonicalHash(elements);
  * it, it holds rows, memory or a running Job, something that stays uses it) and the other
  * elements it needs if kept. `reviewed` binds the removal to this list.
  */
-export const uninstallPreview = reader.input(Id).handler(async ({ input, context }) => {
+export const uninstallPreview = memberProcedure.input(Id).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const elements = await inUse(context.db, context.access.workspaceId, row.id);
@@ -174,7 +174,7 @@ export const Choices = z.record(z.string().max(100), z.enum(["keep", "delete"]))
  * it loses it. Only what `uninstallPreview` showed is applied (`reviewed`), and the choices are
  * checked as a whole first (`checkChoices`).
  */
-export const uninstall = writer.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) =>
+export const uninstall = managerProcedure.input(Id.extend({ reviewed: z.string().length(64), choices: Choices })).handler(({ input, context }) =>
   acted("uninstall", input.id, async () => {
     if (context.job) throw new ORPCError("FORBIDDEN", message("plugins.ownerSession"));
     const out = await context.db.transaction(async (tx) => {

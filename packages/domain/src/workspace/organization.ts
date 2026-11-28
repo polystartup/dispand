@@ -8,7 +8,7 @@ import { organizationMembers, organizations, session, user, workspaceMembers, wo
 import { withIdentity } from "../auth.ts";
 import { inScope, SYSTEM } from "../db/scope.ts";
 import { message } from "../messages/index.ts";
-import { base, orgOwner } from "../rpc/context.ts";
+import { orgOwnerProcedure } from "../rpc/context.ts";
 import { authorizeOrganization } from "./authorize.ts";
 import { removeAssignments } from "./people.ts";
 import { endPersonSubscriptions } from "../runners/subscriptions.ts";
@@ -16,7 +16,6 @@ import { endPersonSubscriptions } from "../runners/subscriptions.ts";
 // The organization's owner runs these in the organization's scope (`orgOwner`): its people, their
 // workspace roles and its ownership. Each write re-checks the ownership in its own transaction.
 
-const owner = base.use(orgOwner);
 const UserId = z.object({ userId: z.string().min(1) });
 const Assignment = UserId.extend({ workspaceId: z.string().min(1) });
 const missing = () => new ORPCError("NOT_FOUND", message("workspace.membershipNotFound"));
@@ -50,7 +49,7 @@ async function auditedEverywhere(tx: Tx, context: Caller, action: AuditAction, d
 }
 
 /** The organization's workspaces and its people, each with their organization role and workspace roles. */
-const directory = owner.handler(async ({ context }) => {
+const directory = orgOwnerProcedure.handler(async ({ context }) => {
   const { organizationId } = context.access;
   const spaces = await context.db
     .select({ workspaceId: workspaces.id, name: workspaces.name })
@@ -79,7 +78,7 @@ const directory = owner.handler(async ({ context }) => {
  * Gives a person of the organization a role in one of its workspaces, or changes it. Both are
  * checked live in the transaction: the workspace is the organization's, the person is in it.
  */
-const assign = owner.input(Assignment.extend({ role: z.enum(["manager", "member"]) })).handler(({ context, input }) =>
+const assign = orgOwnerProcedure.input(Assignment.extend({ role: z.enum(["manager", "member"]) })).handler(({ context, input }) =>
   asOwner(context, async (tx) => {
     const { organizationId } = context.access;
     const [placed] = await tx
@@ -98,7 +97,7 @@ const assign = owner.input(Assignment.extend({ role: z.enum(["manager", "member"
 );
 
 /** Takes a person off one of the organization's workspaces, as `workspace.removePerson` does. */
-const unassign = owner.input(Assignment).handler(({ context, input }) =>
+const unassign = orgOwnerProcedure.input(Assignment).handler(({ context, input }) =>
   asOwner(context, async (tx) => {
     const { organizationId } = context.access;
     const [placed] = await tx
@@ -116,7 +115,7 @@ const unassign = owner.input(Assignment).handler(({ context, input }) =>
  * workspaces, their assignments there, then their membership. Never the owner, who leaves only
  * by a transfer.
  */
-const removeMember = owner.input(UserId).handler(({ context, input }) =>
+const removeMember = orgOwnerProcedure.input(UserId).handler(({ context, input }) =>
   asOwner(context, async (tx) => {
     await removeFromOrganization(tx, context.access.organizationId, input.userId, context.ownerId);
     await auditedEverywhere(tx, context, "workspace.organizationMemberRemoved", { userId: input.userId });
@@ -146,7 +145,7 @@ async function removeFromOrganization(tx: Tx, organizationId: string, userId: st
  * they made stays. Never the owner. A person who belongs to another organization too is refused
  * for now: archiving them would end their access there.
  */
-const archiveMember = owner.input(UserId).handler(async ({ context, input }) => {
+const archiveMember = orgOwnerProcedure.input(UserId).handler(async ({ context, input }) => {
   const { organizationId } = context.access;
   // Their memberships in every organization, read under SYSTEM: this scope sees only its own.
   const memberships = await inScope(SYSTEM, () =>
@@ -181,7 +180,7 @@ const archiveMember = owner.input(UserId).handler(async ({ context, input }) => 
  * in one transaction, and each update must touch exactly one row, else nothing changes. The
  * unique owner index refuses a second owner, so of two competing transfers one commits.
  */
-const transferOwnership = owner.input(UserId).handler(({ context, input }) =>
+const transferOwnership = orgOwnerProcedure.input(UserId).handler(({ context, input }) =>
   asOwner(context, async (tx) => {
     const { organizationId } = context.access;
     const member = (userId: string, role: "owner" | "member") =>
@@ -217,7 +216,7 @@ const transferOwnership = owner.input(UserId).handler(({ context, input }) =>
 const DAY = 24 * 3600_000;
 
 /** The people the organization deleted (archived) and the purge hasn't reached: who, since when, and when the purge takes them. */
-const archived = owner.handler(async ({ context }) => {
+const archived = orgOwnerProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select({ userId: user.id, name: user.name, email: user.email, archivedAt: user.archivedAt, days: organizations.personRetentionDays })
     .from(user)
@@ -233,7 +232,7 @@ const archived = owner.handler(async ({ context }) => {
  * organization's owner restores them. Their identity first: if the readmission then fails, they
  * are a person of no organization, who can open nothing.
  */
-const restoreMember = owner.input(UserId).handler(async ({ context, input }) => {
+const restoreMember = orgOwnerProcedure.input(UserId).handler(async ({ context, input }) => {
   const { organizationId } = context.access;
   return withIdentity(
     context,
@@ -258,7 +257,7 @@ const restoreMember = owner.input(UserId).handler(async ({ context, input }) => 
 const Days = z.number().int().min(1).max(3650);
 
 /** The organization's data retention: days a deleted person is kept before the nightly purge, and days Audit rows are kept. */
-const retention = owner.handler(async ({ context }) => {
+const retention = orgOwnerProcedure.handler(async ({ context }) => {
   const [row] = await context.db
     .select({ personDays: organizations.personRetentionDays, auditDays: organizations.auditRetentionDays })
     .from(organizations)
@@ -272,7 +271,7 @@ const retention = owner.handler(async ({ context }) => {
  * people and their Assistants sooner, or erases the trail of what agents did: its owner's only, never
  * a Job's, and recorded in every workspace.
  */
-const setRetention = owner.input(z.object({ personDays: Days, auditDays: Days })).handler(({ context, input }) =>
+const setRetention = orgOwnerProcedure.input(z.object({ personDays: Days, auditDays: Days })).handler(({ context, input }) =>
   asOwner(context, async (tx) => {
     await tx
       .update(organizations)

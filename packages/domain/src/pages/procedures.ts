@@ -15,12 +15,10 @@ import {
 import { queryProblem } from "../data/query.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 import { newId } from "../ids.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { StorableText } from "../text.ts";
 import { GridConfig, TableConfig } from "./config.ts";
 import { BREAKPOINTS, fits, GridPos, placeBelow } from "./layout.ts";
-
-const owner = base.use(member);
 
 const Title = z.string().trim().min(1).max(100);
 
@@ -79,10 +77,12 @@ async function pageWithWidgets(db: Db, page: typeof pagesTable.$inferSelect) {
 }
 
 /** The owner's home page and its widgets. */
-const home = owner.handler(async ({ context }) => pageWithWidgets(context.db, await ensureHome(context.db, context.actorId, context.access.workspaceId)));
+const home = memberProcedure.handler(async ({ context }) =>
+  pageWithWidgets(context.db, await ensureHome(context.db, context.actorId, context.access.workspaceId)),
+);
 
 /** Home first, then the owner's pages in the order they were made. */
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const workspaceId = context.access.workspaceId;
   await ensureHome(context.db, context.actorId, workspaceId);
   return context.db
@@ -92,11 +92,11 @@ const list = owner.handler(async ({ context }) => {
     .orderBy(sql`${pagesTable.kind} <> 'home'`, asc(pagesTable.createdAt), asc(pagesTable.id));
 });
 
-const get = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   return pageWithWidgets(context.db, await requirePage(context.db, context.actorId, context.access.workspaceId, input.id));
 });
 
-const createPage = owner.input(z.object({ title: PageTitle })).handler(async ({ input, context }) => {
+const createPage = memberProcedure.input(z.object({ title: PageTitle })).handler(async ({ input, context }) => {
   const workspaceId = context.access.workspaceId;
   // One create at a time per owner and workspace, so two can't both take the last place.
   return context.db.transaction(async (tx) => {
@@ -114,14 +114,14 @@ const createPage = owner.input(z.object({ title: PageTitle })).handler(async ({ 
   });
 });
 
-const renamePage = owner.input(z.object({ id: z.string(), title: PageTitle })).handler(async ({ input, context }) => {
+const renamePage = memberProcedure.input(z.object({ id: z.string(), title: PageTitle })).handler(async ({ input, context }) => {
   const page = await requirePage(context.db, context.actorId, context.access.workspaceId, input.id);
   if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeRename"));
   await context.db.update(pagesTable).set({ title: input.title }).where(eq(pagesTable.id, page.id));
 });
 
 /** Deletes a page and, by cascade, its widgets; Home is fixed. */
-const removePage = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const removePage = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   const page = await requirePage(context.db, context.actorId, context.access.workspaceId, input.id);
   if (page.kind === "home") throw new ORPCError("FORBIDDEN", message("pages.homeDelete"));
   await context.db.delete(pagesTable).where(and(eq(pagesTable.id, page.id), eq(pagesTable.ownerId, context.actorId)));
@@ -161,23 +161,81 @@ export async function checkConfig(db: Db, workspaceId: string, tableId: string, 
   return table;
 }
 
-const create = owner.input(z.discriminatedUnion("type", [createForm, createTriggerForm, createGrid, createTable])).handler(async ({ input, context }) => {
-  const page = await requirePage(context.db, context.actorId, context.access.workspaceId, input.pageId);
-  if (input.type === "trigger-form") {
-    const [trigger] = await context.db
-      .select({ name: triggers.name, config: triggers.config })
-      .from(triggers)
-      .innerJoin(agents, eq(agents.id, triggers.agentId))
-      // The workspace's triggers, but those of other people's Assistants.
-      .where(and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, page.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))));
-    if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
-    const { config } = trigger;
-    if (config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualTriggerForm"));
-    // One form per trigger on a page, serialized per page like workflow forms.
+const create = memberProcedure
+  .input(z.discriminatedUnion("type", [createForm, createTriggerForm, createGrid, createTable]))
+  .handler(async ({ input, context }) => {
+    const page = await requirePage(context.db, context.actorId, context.access.workspaceId, input.pageId);
+    if (input.type === "trigger-form") {
+      const [trigger] = await context.db
+        .select({ name: triggers.name, config: triggers.config })
+        .from(triggers)
+        .innerJoin(agents, eq(agents.id, triggers.agentId))
+        // The workspace's triggers, but those of other people's Assistants.
+        .where(
+          and(eq(triggers.id, input.triggerId), eq(agents.workspaceId, page.workspaceId), or(isNull(agents.builtIn), eq(agents.ownerId, context.actorId))),
+        );
+      if (!trigger) throw new ORPCError("NOT_FOUND", message("triggers.notFound"));
+      const { config } = trigger;
+      if (config.kind !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualTriggerForm"));
+      // One form per trigger on a page, serialized per page like workflow forms.
+      const row = await context.db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:widgets:${input.pageId}`}))`);
+        const existing = await tx.select().from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
+        const already = existing.find((w) => w.triggerId === input.triggerId);
+        if (already) return already;
+        const [inserted] = await tx
+          .insert(widgetsTable)
+          .values({
+            id: newId("widget"),
+            ownerId: context.actorId,
+            pageId: input.pageId,
+            type: "trigger-form",
+            title: input.title ?? trigger.name,
+            triggerId: input.triggerId,
+            layout: placeBelow(
+              existing.map((w) => w.layout),
+              config.placement,
+            ),
+          })
+          .returning();
+        return inserted!;
+      });
+      return toWidget(row);
+    }
+    if (input.type !== "workflow-form") {
+      const table = await checkConfig(context.db, page.workspaceId, input.tableId, input.config);
+      const existing = await context.db.select({ layout: widgetsTable.layout }).from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
+      const [row] = await context.db
+        .insert(widgetsTable)
+        .values({
+          id: newId("widget"),
+          ownerId: context.actorId,
+          pageId: input.pageId,
+          type: input.type,
+          title: input.title ?? table.name,
+          tableId: input.tableId,
+          config: input.config,
+          layout: placeBelow(
+            existing.map((w) => w.layout),
+            "data",
+          ),
+        })
+        .returning();
+      return toWidget(row!);
+    }
+    const [wf] = await context.db
+      .select({ name: workflows.name, def: workflowVersions.def })
+      .from(workflows)
+      .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
+      .where(and(eq(workflows.id, input.workflowId), eq(workflows.workspaceId, page.workspaceId), isNull(workflows.archivedAt)));
+    if (!wf) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
+    if (wf.def.trigger.type !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualWorkflowForm"));
+    // One form per workflow on a page: asking again returns it (a double click, a second visit).
+    // Serialized per page, so two concurrent creates can't both insert (older duplicates stay as they are).
     const row = await context.db.transaction(async (tx) => {
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:widgets:${input.pageId}`}))`);
       const existing = await tx.select().from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
-      const already = existing.find((w) => w.triggerId === input.triggerId);
+      const already = existing.find((w) => w.workflowId === input.workflowId);
       if (already) return already;
       const [inserted] = await tx
         .insert(widgetsTable)
@@ -185,97 +243,45 @@ const create = owner.input(z.discriminatedUnion("type", [createForm, createTrigg
           id: newId("widget"),
           ownerId: context.actorId,
           pageId: input.pageId,
-          type: "trigger-form",
-          title: input.title ?? trigger.name,
-          triggerId: input.triggerId,
+          type: "workflow-form",
+          title: input.title ?? wf.name,
+          workflowId: input.workflowId,
           layout: placeBelow(
             existing.map((w) => w.layout),
-            config.placement,
+            wf.def.trigger.field.type === "chat" ? "chat" : "button",
           ),
         })
         .returning();
       return inserted!;
     });
     return toWidget(row);
-  }
-  if (input.type !== "workflow-form") {
-    const table = await checkConfig(context.db, page.workspaceId, input.tableId, input.config);
-    const existing = await context.db.select({ layout: widgetsTable.layout }).from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
-    const [row] = await context.db
-      .insert(widgetsTable)
-      .values({
-        id: newId("widget"),
-        ownerId: context.actorId,
-        pageId: input.pageId,
-        type: input.type,
-        title: input.title ?? table.name,
-        tableId: input.tableId,
-        config: input.config,
-        layout: placeBelow(
-          existing.map((w) => w.layout),
-          "data",
-        ),
-      })
-      .returning();
-    return toWidget(row!);
-  }
-  const [wf] = await context.db
-    .select({ name: workflows.name, def: workflowVersions.def })
-    .from(workflows)
-    .innerJoin(workflowVersions, and(eq(workflowVersions.workflowId, workflows.id), eq(workflowVersions.version, workflows.currentVersion)))
-    .where(and(eq(workflows.id, input.workflowId), eq(workflows.workspaceId, page.workspaceId), isNull(workflows.archivedAt)));
-  if (!wf) throw new ORPCError("NOT_FOUND", message("workflows.notFound"));
-  if (wf.def.trigger.type !== "manual") throw new ORPCError("BAD_REQUEST", message("pages.manualWorkflowForm"));
-  // One form per workflow on a page: asking again returns it (a double click, a second visit).
-  // Serialized per page, so two concurrent creates can't both insert (older duplicates stay as they are).
-  const row = await context.db.transaction(async (tx) => {
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`dispand:widgets:${input.pageId}`}))`);
-    const existing = await tx.select().from(widgetsTable).where(eq(widgetsTable.pageId, input.pageId));
-    const already = existing.find((w) => w.workflowId === input.workflowId);
-    if (already) return already;
-    const [inserted] = await tx
-      .insert(widgetsTable)
-      .values({
-        id: newId("widget"),
-        ownerId: context.actorId,
-        pageId: input.pageId,
-        type: "workflow-form",
-        title: input.title ?? wf.name,
-        workflowId: input.workflowId,
-        layout: placeBelow(
-          existing.map((w) => w.layout),
-          wf.def.trigger.field.type === "chat" ? "chat" : "button",
-        ),
-      })
-      .returning();
-    return inserted!;
   });
-  return toWidget(row);
-});
 
 const UpdateConfig = GridConfig.extend({ sort: TableConfig.shape.sort });
 
 /** Renames a widget, or sets what a Grid or Table widget shows (`config`, checked against its table). */
-const update = owner.input(z.object({ id: z.string(), title: Title.optional(), config: UpdateConfig.optional() })).handler(async ({ input, context }) => {
-  const workspaceId = context.access.workspaceId;
-  const widget = await requireWidget(context.db, context.actorId, workspaceId, input.id);
-  let config: GridConfig | TableConfig | undefined;
-  if (input.config) {
-    if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
-    // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
-    const { fieldIds, coverFieldId, sort } = input.config;
-    config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
-    await checkConfig(context.db, workspaceId, widget.tableId!, config);
-  }
-  const [row] = await context.db
-    .update(widgetsTable)
-    .set({ ...(input.title && { title: input.title }), ...(config && { config }) })
-    .where(eq(widgetsTable.id, input.id))
-    .returning();
-  return toWidget(row!);
-});
+const update = memberProcedure
+  .input(z.object({ id: z.string(), title: Title.optional(), config: UpdateConfig.optional() }))
+  .handler(async ({ input, context }) => {
+    const workspaceId = context.access.workspaceId;
+    const widget = await requireWidget(context.db, context.actorId, workspaceId, input.id);
+    let config: GridConfig | TableConfig | undefined;
+    if (input.config) {
+      if (widget.type === "workflow-form" || widget.type === "trigger-form") throw new ORPCError("BAD_REQUEST", message("pages.formNoFields"));
+      // Only what the widget's type keeps: a Grid has a cover, a Table a sort.
+      const { fieldIds, coverFieldId, sort } = input.config;
+      config = widget.type === "grid" ? { fieldIds, coverFieldId } : { fieldIds, sort };
+      await checkConfig(context.db, workspaceId, widget.tableId!, config);
+    }
+    const [row] = await context.db
+      .update(widgetsTable)
+      .set({ ...(input.title && { title: input.title }), ...(config && { config }) })
+      .where(eq(widgetsTable.id, input.id))
+      .returning();
+    return toWidget(row!);
+  });
 
-const removeWidget = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const removeWidget = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await requireWidget(context.db, context.actorId, context.access.workspaceId, input.id);
   await context.db.delete(widgetsTable).where(eq(widgetsTable.id, input.id));
 });
@@ -284,7 +290,7 @@ const Item = GridPos.extend({ i: z.string() });
 const Layouts = z.object({ lg: z.array(Item).max(200), md: z.array(Item).max(200), sm: z.array(Item).max(200) }).partial();
 
 /** Saves the positions of the page's widgets at each breakpoint given; items of other pages are ignored. */
-const saveLayout = owner.input(z.object({ pageId: z.string(), layouts: Layouts })).handler(async ({ input, context }) => {
+const saveLayout = memberProcedure.input(z.object({ pageId: z.string(), layouts: Layouts })).handler(async ({ input, context }) => {
   await requirePage(context.db, context.actorId, context.access.workspaceId, input.pageId);
   for (const bp of BREAKPOINTS) {
     for (const item of input.layouts[bp] ?? []) {

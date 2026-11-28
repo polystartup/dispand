@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { expect, test } from "vitest";
 import { organizationMembers, organizations, runs, user, workspaceMembers, workspaces } from "../db/schema.ts";
 import { base, manager, member, orgOwner } from "../rpc/context.ts";
+import * as rpc from "../rpc/context.ts";
 import { router } from "../rpc/router.ts";
 import { jobIdentity, ownerContext } from "../runners/test-support.ts";
 import { authorize, resolveWorkspace } from "./authorize.ts";
@@ -94,6 +95,43 @@ test("member, manager and orgOwner admit by the live role of the workspace the r
   // One openable workspace left: it is the default.
   expect(await call(probe.member, undefined, { context })).toMatchObject({ workspaceId, role: "member" });
   await expect(call(probe.member, undefined, { context: { ...context, headers: new Headers() } })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+});
+
+test("each named procedure base admits whom its name says, and every one is listed here", async () => {
+  const context = await install();
+  const { organizationId, workspaceId, startedJob: job } = context;
+  const bases = Object.fromEntries(Object.entries(rpc).filter(([name]) => name.endsWith("Procedure"))) as Record<string, typeof rpc.memberProcedure>;
+  const admitted = (procedure: typeof rpc.memberProcedure, as: typeof context) =>
+    call(
+      procedure.handler(() => "admitted"),
+      undefined,
+      { context: as },
+    ).catch((err: { code?: string }) => err.code);
+  const naming = (organization: string, workspace: string) => ({
+    ...context,
+    headers: new Headers({ ...Object.fromEntries(context.headers), "dispand-organization": organization, "dispand-workspace": workspace }),
+  });
+  const inMain = naming(organizationId, workspaceId);
+  const outcomes: Record<string, Record<string, unknown>> = Object.fromEntries(Object.keys(bases).map((name) => [name, {}]));
+  const record = async (caller: string, as: typeof context) => {
+    for (const [name, procedure] of Object.entries(bases)) outcomes[name]![caller] = await admitted(procedure, as);
+  };
+  await record("orgOwner", inMain);
+  await record("outsider", naming("foreign-org", "foreign"));
+  await record("job", { ...inMain, job });
+  await record("noSession", { ...inMain, headers: new Headers() });
+  await context.db.update(organizationMembers).set({ role: "member" }).where(eq(organizationMembers.userId, context.ownerId));
+  await context.db.insert(workspaceMembers).values({ workspaceId, userId: context.ownerId, role: "member" });
+  await record("member", inMain);
+  await context.db.update(workspaceMembers).set({ role: "manager" }).where(eq(workspaceMembers.userId, context.ownerId));
+  await record("manager", inMain);
+  const anyone = { orgOwner: "admitted", outsider: "admitted", job: "admitted", noSession: "UNAUTHORIZED", member: "admitted", manager: "admitted" };
+  expect(outcomes).toEqual({
+    signedInProcedure: anyone,
+    memberProcedure: { ...anyone, outsider: "NOT_FOUND" },
+    managerProcedure: { ...anyone, outsider: "NOT_FOUND", member: "FORBIDDEN" },
+    orgOwnerProcedure: { ...anyone, outsider: "NOT_FOUND", job: "NOT_FOUND", member: "NOT_FOUND", manager: "NOT_FOUND" },
+  });
 });
 
 test("a Job is a member of its run's workspace, whatever the request says", async () => {

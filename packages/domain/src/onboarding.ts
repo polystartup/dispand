@@ -1,15 +1,13 @@
 import { count, eq } from "drizzle-orm";
 import { findAssistant } from "./agents/builtin.ts";
 import { harnesses } from "./db/schema.ts";
-import { base, member } from "./rpc/context.ts";
-
-const owner = base.use(member);
+import { memberProcedure } from "./rpc/context.ts";
 
 /**
  * What first launch needs: the person's Assistant in the workspace, if it was made, and whether a harness exists
  * for it to run on. Until there is an Assistant, Home sends the owner to its page.
  */
-const status = owner.handler(async ({ context }) => {
+const status = memberProcedure.handler(async ({ context }) => {
   const [assistant, [row]] = await Promise.all([
     findAssistant(context.db, context.actorId, context.access.workspaceId),
     context.db.select({ n: count() }).from(harnesses).where(eq(harnesses.workspaceId, context.access.workspaceId)),

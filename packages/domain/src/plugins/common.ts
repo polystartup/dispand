@@ -6,14 +6,10 @@ import { z } from "zod";
 import { type Db } from "../db/client.ts";
 import { plugins as pluginsTable } from "../db/schema.ts";
 import { message } from "../messages/index.ts";
-import { base, type InitialContext, manager, member } from "../rpc/context.ts";
+import { type InitialContext } from "../rpc/context.ts";
 import { validatePackage } from "../skills/package.ts";
 import { type Tx } from "../skills/procedures.ts";
 import { type PluginContents } from "./read-plugin.ts";
-
-/** Reading plugins and marketplaces is any member's; installing, updating, removing and deciding is a manager's. */
-export const reader = base.use(member);
-export const writer = base.use(manager);
 
 const traces = tracer("plugins");
 

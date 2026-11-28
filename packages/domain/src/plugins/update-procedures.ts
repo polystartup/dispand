@@ -4,6 +4,7 @@ import { call, ORPCError } from "@orpc/server";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { type Db } from "../db/client.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import {
   agents as agentsTable,
   agentSkills,
@@ -40,7 +41,7 @@ import { moveNative, nativeInstalls } from "./native.ts";
 import { componentsOf, type PluginContents } from "./read-plugin.ts";
 import { movesNativePin, nativePin, pinnedFiles, storePluginFiles } from "./runner-servers.ts";
 import { nativeReview, shownFile } from "./native-code.ts";
-import { reader, writer, acted, Id, chosenSkills, PluginRow, findPlugin } from "./common.ts";
+import { acted, Id, chosenSkills, PluginRow, findPlugin } from "./common.ts";
 import { validatePackage } from "../skills/package.ts";
 import { readEntry, findMarketplace, syncMarketplace } from "./marketplace-procedures.ts";
 import { lockElements, removeElements, Choices } from "./uninstall-procedures.ts";
@@ -356,7 +357,7 @@ async function tableDifferences(db: Db | Tx, workspaceId: string, row: PluginRow
 }
 
 /** The changes of each of the plugin's tables not applied to it, each with its token: shown on the plugin's row with "Apply". */
-export const tableChangesOf = reader.input(Id).handler(async ({ input, context }) => {
+export const tableChangesOf = memberProcedure.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   return (await tableDifferences(context.db, context.access.workspaceId, row)).map(({ plan, reviewed }) => ({
     tableId: plan.tableId,
@@ -369,7 +370,7 @@ export const tableChangesOf = reader.input(Id).handler(async ({ input, context }
  * Applies one change `tableChanges` showed, as the update applies a ticked one. Refused when
  * the table, the plugin's version or its definition of the table changed since it was shown.
  */
-export const applyTableChange = writer
+export const applyTableChange = managerProcedure
   .input(Id.extend({ tableId: z.string().max(64), key: z.string().max(200), reviewed: z.string().length(64) }))
   .handler(({ input, context }) =>
     acted("applyTableChange", input.id, async () => {
@@ -388,7 +389,7 @@ export const applyTableChange = writer
 
 const tableOf = (kind: UpdatableKind) => (kind === "agent" ? agentsTable : kind === "tool" ? toolsTable : triggersTable);
 
-export const updatePreview = reader.input(Id).handler(async ({ input, context }) => {
+export const updatePreview = memberProcedure.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const { sha, conflicts, changes, additions, later, removals, shownTables, reviewed, releaseNotes, runsNatively } = await updatePlan(context, row);
   // Where it is installed natively: named on the screen, moved with the update.
@@ -446,7 +447,7 @@ async function namesIn(db: Db, workspaceId: string, values: unknown): Promise<Re
  * only as `updatePreview` showed it (`reviewed`); one with none applies at once. Each element is
  * written through its own procedure, with its checks; one it refuses is reported, not applied.
  */
-export const update = writer
+export const update = managerProcedure
   .input(
     Id.extend({
       reviewed: z.string().length(64).optional(),
@@ -722,7 +723,7 @@ const approvalToken = (sha: string, digest: string | null) => canonicalHash({ sh
  * What approving the plugin's current commit for native execution would run, against its pinned
  * revision: shown before `approveNative`, whose `reviewed` must match it.
  */
-export const nativePreview = reader.input(Id).handler(async ({ input, context }) => {
+export const nativePreview = memberProcedure.input(Id).handler(async ({ input, context }) => {
   const row = await findPlugin(context.db, context.access.workspaceId, input.id);
   const read = await latest(context, row);
   const runsNatively = nativeReview(await pinnedFiles(context.db, row.id), read.nativeFiles);
@@ -733,7 +734,7 @@ export const nativePreview = reader.input(Id).handler(async ({ input, context })
   };
 });
 
-export const approveNative = writer
+export const approveNative = managerProcedure
   .input(
     Id.extend({
       /** The commit the manager was shown: approving pins only that one. */ sha: z.string().regex(/^[0-9a-f]{40}$/),

@@ -3,19 +3,16 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { organizations, workspaces } from "../db/schema.ts";
 import { rightsOf } from "../platform/rights.ts";
-import { base, manager, member } from "../rpc/context.ts";
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { dailyAudit, DailyRange, daysIn } from "./daily.ts";
 import { AuditCursorError, AuditFilter, listAudit } from "./list.ts";
 import { message } from "../messages/index.ts";
-
-const reader = base.use(member);
-const writer = base.use(manager);
 
 /**
  * The workspace's Audit rows, newest first, a page at a time (`listAudit`), narrowed by any filter.
  * Called by a Job (`audit_list`, `configure`): only rows naming no table or a table of the Job's.
  */
-const list = writer.input(AuditFilter.extend({ cursor: z.string().max(1000).optional() })).handler(async ({ input, context }) => {
+const list = managerProcedure.input(AuditFilter.extend({ cursor: z.string().max(1000).optional() })).handler(async ({ input, context }) => {
   const { cursor, ...filter } = input;
   const tables = context.job ? ((await rightsOf(context.db, context.job))?.tables ?? []) : "all";
   try {
@@ -30,7 +27,7 @@ const list = writer.input(AuditFilter.extend({ cursor: z.string().max(1000).opti
  * The workspace's Audit rows counted per day of a range (`dailyAudit`): the rows `list` reads, so
  * a Job sees the same as there, and counts only. A range is at most the organization's retention.
  */
-const daily = writer.input(DailyRange).handler(async ({ input, context }) => {
+const daily = managerProcedure.input(DailyRange).handler(async ({ input, context }) => {
   const workspaceId = context.access.workspaceId;
   const [org] = await context.db
     .select({ days: organizations.auditRetentionDays })
@@ -51,6 +48,6 @@ const daily = writer.input(DailyRange).handler(async ({ input, context }) => {
 });
 
 /** Where a trace is opened (`DISPAND_TRACE_URL`, with `{traceId}`), for the Audit page's links; null when it isn't set. */
-const traceUrl = reader.handler(({ context }) => ({ traceUrl: context.traceUrl ?? null }));
+const traceUrl = memberProcedure.handler(({ context }) => ({ traceUrl: context.traceUrl ?? null }));
 
 export const audit = { list, daily, traceUrl };

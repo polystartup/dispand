@@ -8,7 +8,7 @@ import type { Db, Tx } from "../db/client.ts";
 import { runners, subscriptionChallenges, subscriptionEnrollments } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { emitLog, meter } from "../telemetry/index.ts";
 import { authorize } from "../workspace/authorize.ts";
 import { liveEnrollments } from "./enrollments.ts";
@@ -162,7 +162,7 @@ export async function confirmEnrollment(
 }
 
 // A person's own: never a Job's, and never on someone else's behalf.
-const person = base.use(member).use(async ({ context, next }) => {
+const person = memberProcedure.use(async ({ context, next }) => {
   if (context.jobPlace) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   return next();
 });
@@ -202,7 +202,7 @@ const startEnrollment = person.input(z.object({ runnerId: z.string() })).handler
  * identity, never whose it is otherwise. `signInNeeded` (the runner's login must be signed in again
  * there) for the caller's own, and for a manager on every one.
  */
-const subscriptions = base.use(member).handler(async ({ context }) => {
+const subscriptions = memberProcedure.handler(async ({ context }) => {
   const managing = !context.jobPlace && (context.access.role === "owner" || context.access.role === "manager");
   return (await liveEnrollments(context.db, context.access)).map((e) => {
     const mine = e.userId === context.actorId;

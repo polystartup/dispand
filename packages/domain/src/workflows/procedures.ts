@@ -26,7 +26,7 @@ import { proposalView } from "../platform/proposals.ts";
 import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { base, type InitialContext, inPlacedScope, inStreamScope, member, signedIn, untilRefused } from "../rpc/context.ts";
+import { type InitialContext, inPlacedScope, inStreamScope, untilRefused, memberProcedure, signedInProcedure } from "../rpc/context.ts";
 import { authorize, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
@@ -37,15 +37,12 @@ import { cronProblem, nextFireAfter } from "./schedule.ts";
 import { readableRun, type RunReader } from "../workspace/access.ts";
 import { toolIdsOf } from "./tool-steps.ts";
 
-const owner = base.use(member);
-
 /** A member procedure's caller, as the run checks (`readableRun`) take a reader: its person is the actor. */
 const asReader = (context: Pick<InitialContext, "db" | "job"> & { actorId: string }): RunReader => ({
   db: context.db,
   job: context.job,
   ownerId: context.actorId,
 });
-const reader = base.use(signedIn);
 
 const Name = z.string().trim().min(1).max(100);
 
@@ -133,7 +130,7 @@ export async function agentInUse(db: Db | Tx, workspaceId: string, agentId: stri
   return [...current, ...running].some(({ def }) => agentIdsOf(def).includes(agentId));
 }
 
-const create = owner.input(z.object({ name: Name })).handler(async ({ input, context }) => {
+const create = memberProcedure.input(z.object({ name: Name })).handler(async ({ input, context }) => {
   const id = newId("wf");
   const def = defaultWorkflowDef(newId("node"));
   const row = await context.db.transaction(async (tx) => {
@@ -148,7 +145,7 @@ const create = owner.input(z.object({ name: Name })).handler(async ({ input, con
 });
 
 /** Saves the name, and the definition as a new version when it changed (runs keep theirs). */
-const update = owner.input(z.object({ id: z.string(), name: Name, def: WorkflowDef })).handler(async ({ input, context }) => {
+const update = memberProcedure.input(z.object({ id: z.string(), name: Name, def: WorkflowDef })).handler(async ({ input, context }) => {
   const workflow = await find(context, input.id);
   const [broken] = structuralIssues(input.def);
   if (broken) throw new ORPCError("BAD_REQUEST", message(broken.message.key, broken.message.values));
@@ -217,7 +214,7 @@ async function syncSchedule(tx: Tx, ownerId: string | null, workflowId: string, 
 }
 
 /** Pauses or resumes the workflow's schedule; resumed, it fires from now on (no catch-up for the pause). */
-const setScheduleEnabled = owner.input(z.object({ id: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
+const setScheduleEnabled = memberProcedure.input(z.object({ id: z.string(), enabled: z.boolean() })).handler(async ({ input, context }) => {
   await find(context, input.id);
   const now = (context.now ?? (() => new Date()))();
   await context.db.transaction(async (tx) => {
@@ -236,7 +233,7 @@ const setScheduleEnabled = owner.input(z.object({ id: z.string(), enabled: z.boo
  * Deletes the workflow for its owner: archived, it no longer lists, opens or runs, its schedule
  * and its widgets go, and its runs stay as history. Refused while one of its runs is going.
  */
-const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
+const remove = memberProcedure.input(z.object({ id: z.string() })).handler(async ({ input, context }) => {
   await find(context, input.id);
   await context.db.transaction(async (tx) => {
     await lockSchedule(tx, input.id);
@@ -254,7 +251,7 @@ const remove = owner.input(z.object({ id: z.string() })).handler(async ({ input,
   });
 });
 
-const list = owner.handler(async ({ context }) => {
+const list = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(workflowsTable)
@@ -264,7 +261,7 @@ const list = owner.handler(async ({ context }) => {
 });
 
 /** The workflow with its current definition, or the definition of `version` (what a run started on). */
-const get = owner.input(z.object({ id: z.string(), version: z.number().int().min(1).optional() })).handler(async ({ input, context }) => {
+const get = memberProcedure.input(z.object({ id: z.string(), version: z.number().int().min(1).optional() })).handler(async ({ input, context }) => {
   // A version asked for is a run's: its history reads on once the workflow is deleted.
   const row = await find(context, input.id, input.version !== undefined);
   const version = input.version ?? row.currentVersion;
@@ -376,7 +373,7 @@ export function engineError(err: unknown): never {
   throw new ORPCError(code, passOn(err));
 }
 
-const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({ input, context }) => {
+const start = memberProcedure.input(z.object({ workflowId: z.string() })).handler(async ({ input, context }) => {
   const workflow = await find(context, input.workflowId);
   const def = await defOf(context.db, workflow.id, workflow.currentVersion);
   const [issue] = await runIssues(context.db, workflow.workspaceId, def);
@@ -391,7 +388,7 @@ const start = owner.input(z.object({ workflowId: z.string() })).handler(async ({
   return { runId, ...(chat?.sessionId ? { chatSessionId: chat.sessionId } : {}) };
 });
 
-const sendChat = owner
+const sendChat = memberProcedure
   .input(
     z.object({
       runId: z.string(),
@@ -410,14 +407,14 @@ const sendChat = owner
   });
 
 /** The owner sends a pending queued message now, into the agent's running turn (`Engine.steerQueued`). */
-const steerQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
+const steerQueued = memberProcedure.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   await requireOwnedRun(asReader(context), input.runId);
   await context.engine.steerQueued(input.runId, input.queuedId).catch(engineError);
 });
 
 /** The owner changes a message queued while the chat was busy, while it is still pending. */
-const editQueued = owner
+const editQueued = memberProcedure
   .input(z.object({ runId: z.string(), queuedId: z.string().max(64), text: StorableText(100_000).trim().min(1) }))
   .handler(async ({ input, context }) => {
     if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
@@ -426,20 +423,20 @@ const editQueued = owner
   });
 
 /** The owner takes back a queued message not sent yet (pending, or failed). */
-const removeQueued = owner.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
+const removeQueued = memberProcedure.input(z.object({ runId: z.string(), queuedId: z.string().max(64) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   await requireOwnedRun(asReader(context), input.runId);
   await context.engine.removeQueued(input.runId, input.queuedId).catch(engineError);
 });
 
-const interruptChat = owner.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
+const interruptChat = memberProcedure.input(z.object({ runId: z.string(), turnId: z.string().min(1).max(256) })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("auth.ownerOnly"));
   await requireOwnedRun(asReader(context), input.runId);
   return context.engine.interruptChat(input.runId, input.turnId).catch(engineError);
 });
 
 /** Stops a run or a Job still going: its open steps fail with "Stopped" and its sessions end. */
-const stop = owner.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
+const stop = memberProcedure.input(z.object({ runId: z.string() })).handler(async ({ input, context }) => {
   await requireOwnedRun(asReader(context), input.runId);
   await context.engine.stopRun(input.runId).catch(engineError);
 });
@@ -449,7 +446,7 @@ const runNotFound = () => new ORPCError("NOT_FOUND", message("workflows.runNotFo
 /** `read` in the run's workspace, once the caller may open it there (`inPlacedScope`). */
 const inRunPlace = async <T>(context: RunReader & Parameters<typeof inPlacedScope>[0], runId: string, read: () => Promise<T>) =>
   inPlacedScope(context, await placeOfRun(context.db, runId), runNotFound, read);
-const access = reader.input(runInput).handler(({ input, context }) =>
+const access = signedInProcedure.input(runInput).handler(({ input, context }) =>
   inRunPlace(context, input.runId, async () => {
     const [row] = await context.db
       .select({ ownerId: runsTable.ownerId })
@@ -461,12 +458,12 @@ const access = reader.input(runInput).handler(({ input, context }) =>
   }),
 );
 
-const getRun = reader
+const getRun = signedInProcedure
   .input(runInput)
   .handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));
 
 /** The run as it is, then every change to it while the client listens. */
-const stream = reader.input(runInput).handler(async function* ({ input, context, signal }) {
+const stream = signedInProcedure.input(runInput).handler(async function* ({ input, context, signal }) {
   const allowed = () =>
     context.db
       .select({ ownerId: runsTable.ownerId })
@@ -552,7 +549,7 @@ export const TITLE_LENGTH = 80;
  * conversation's first message, null before it has one. `waitingOn` and `consultedBy`: the agent a
  * Job's pending consult waits on, and the agent that consulted it (`jobs/consults.ts`).
  */
-const listRuns = owner
+const listRuns = memberProcedure
   .input(z.object({ workflowId: z.string().optional(), agentId: z.string().optional(), triggerId: z.string().optional(), kind: z.literal("chat").optional() }))
   .handler(async ({ input, context }) => {
     if (input.triggerId) {

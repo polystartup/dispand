@@ -1,3 +1,4 @@
+import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import { isNativePluginPath } from "@dispand/runner-protocol";
 import { lstat, realpath } from "node:fs/promises";
 import { join, relative } from "node:path";
@@ -17,7 +18,7 @@ import { readWellKnownIndex, readWellKnownSkills, WellKnownError, wellKnownIndex
 import { type PluginContents, readPlugin, resolvePluginRoot } from "./read-plugin.ts";
 import { MAX_RUNNER_FILES, Notes, PluginError, readRunnerFiles, withBudget, isDir, kindAt } from "./fs.ts";
 import { type PluginFile } from "./runner-servers.ts";
-import { reader, writer, Id } from "./common.ts";
+import { Id } from "./common.ts";
 import { marketplaceUrl } from "./names.ts";
 
 export { marketplaceUrl };
@@ -208,7 +209,7 @@ export async function syncMarketplace(db: Db, row: MarketplaceRow, allowFile: bo
   return updated ?? row;
 }
 
-const listMarketplaces = reader.handler(async ({ context }) => {
+const listMarketplaces = memberProcedure.handler(async ({ context }) => {
   const rows = await context.db
     .select()
     .from(marketplacesTable)
@@ -219,7 +220,7 @@ const listMarketplaces = reader.handler(async ({ context }) => {
 
 const AddInput = z.object({ url: Url, kind: z.enum(["git", "well-known"]).default("git") });
 
-const addMarketplace = writer.input(AddInput).handler(async ({ input, context }) => {
+const addMarketplace = managerProcedure.input(AddInput).handler(async ({ input, context }) => {
   const url = input.kind === "well-known" ? wellKnownIndexUrl(input.url) : marketplaceUrl(input.url);
   const { kind, name, entries } = await readSource(input.kind, url, !!context.gitFileUrls);
   const id = newId("mkt");
@@ -235,7 +236,7 @@ const addMarketplace = writer.input(AddInput).handler(async ({ input, context })
   return marketplaceView(await findMarketplace(context.db, context.access.workspaceId, id));
 });
 
-const removeMarketplace = writer.input(Id).handler(async ({ input, context }) => {
+const removeMarketplace = managerProcedure.input(Id).handler(async ({ input, context }) => {
   await context.db.transaction(async (tx) => {
     const row = await findMarketplace(tx, context.access.workspaceId, input.id);
     if (row.builtIn) throw new ORPCError("FORBIDDEN", message("plugins.marketplace.builtIn"));
@@ -247,7 +248,7 @@ const removeMarketplace = writer.input(Id).handler(async ({ input, context }) =>
   });
 });
 
-export const sync = writer.input(Id).handler(async ({ input, context }) => {
+export const sync = managerProcedure.input(Id).handler(async ({ input, context }) => {
   const row = await findMarketplace(context.db, context.access.workspaceId, input.id);
   return marketplaceView(await syncMarketplace(context.db, row, !!context.gitFileUrls));
 });
@@ -265,7 +266,7 @@ function entryView(entry: MarketplaceEntry) {
   };
 }
 
-export const discover = reader.input(z.object({ query: z.string().max(200).optional() })).handler(async ({ input, context }) => {
+export const discover = memberProcedure.input(z.object({ query: z.string().max(200).optional() })).handler(async ({ input, context }) => {
   const markets = await context.db
     .select()
     .from(marketplacesTable)

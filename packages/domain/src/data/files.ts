@@ -18,7 +18,7 @@ import {
 } from "../db/schema.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
-import { base, member } from "../rpc/context.ts";
+import { memberProcedure } from "../rpc/context.ts";
 import { meter } from "../telemetry/index.ts";
 import { readableRun } from "../workspace/access.ts";
 import { asMember } from "../workspace/authorize.ts";
@@ -33,8 +33,6 @@ import type { FileStore, StoredFile } from "./file-store.ts";
 // to it, or written in one of its rows) or, until then, the Job's a tool returned it to or a
 // chat message carried. A file attached in a chat is held for its owner (no table, no Job) until
 // the message that carries it is sent, which gives it to that message's Job.
-
-const owner = base.use(member);
 
 export { MAX_FILE_BYTES, MAX_RESULT_FILES };
 /** An upload or an orphan file is kept this long before the sweep may remove it; a Job's files, this long after the Job ends. */
@@ -77,7 +75,7 @@ function storedName(name: string): string {
   return clean.trim() === "" ? "file" : clean;
 }
 
-const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file() })).handler(async ({ input, context }) => {
+const upload = memberProcedure.input(z.object({ tableId: z.string().max(64), file: z.file() })).handler(async ({ input, context }) => {
   const [table] = await context.db
     .select({ id: tablesTable.id, workspaceId: tablesTable.workspaceId })
     .from(tablesTable)
@@ -97,7 +95,7 @@ const upload = owner.input(z.object({ tableId: z.string().max(64), file: z.file(
  * (`takeChatFiles`), and removed a day later if it never is. It counts in the organization's
  * total from now on.
  */
-const hold = owner.input(z.object({ file: z.file() })).handler(async ({ input, context }) => {
+const hold = memberProcedure.input(z.object({ file: z.file() })).handler(async ({ input, context }) => {
   if (context.job) throw new ORPCError("FORBIDDEN", message("data.file.agentOnly"));
   if (input.file.size > MAX_FILE_BYTES) throw new ORPCError("BAD_REQUEST", message("data.file.tooLarge"));
   const bytes = new Uint8Array(await input.file.arrayBuffer());
