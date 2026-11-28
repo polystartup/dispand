@@ -130,7 +130,7 @@
   the provider or base URL changes: the key is then dropped, so it never reaches another URL) and
   `""` clears it (only `openai-compatible` may have none). Harnesses, marketplaces, plugins, skill
   packages and tools belong to a workspace (`workspace_id`); their names are unique per workspace. A key goes only to an `https://`
-  base URL, or plain http to loopback. `loadCloudHarness` (server-only) opens it for the model
+  base URL, or plain http to loopback; an address with a user name or password is refused. `loadCloudHarness` (server-only) opens it for the model
   clients (`cloud/model-client.ts`). `harnesses.models` lists a provider's models
   (`cloud/models.ts`: no redirects, 10 s, errors are "The provider refused the key" or
   "Couldn't reach <host>", never the provider's body).

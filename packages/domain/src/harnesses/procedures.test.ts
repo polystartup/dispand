@@ -389,3 +389,33 @@ test("model discovery to a new URL sends no saved key", async () => {
   }
   expect(seen).toEqual(["https://elsewhere.example.test/v1/models null"]);
 });
+
+test("a base URL with a user name or password is refused, and one already saved is never returned", async () => {
+  const { context } = await setup();
+  const local = { type: "cloud", name: "Local", kind: "openai-compatible", model: "qwen", systemPrompt: "" } as const;
+  for (const baseUrl of ["https://user:secret@llm.example.test/v1", "https://user@llm.example.test/v1"]) {
+    await expect(call(router.harnesses.create, { ...local, baseUrl }, { context })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  }
+  const created = await call(router.harnesses.create, { ...local, baseUrl: "https://llm.example.test/v1" }, { context });
+  await expect(
+    call(router.harnesses.update, { ...local, id: created.id, baseUrl: "https://user:secret@llm.example.test/v1" }, { context }),
+  ).rejects.toMatchObject({
+    code: "BAD_REQUEST",
+  });
+
+  // A row an older save made: the server keeps using it, the views show the address without it.
+  const stored = "https://user:secret@llm.example.test/v1";
+  await context.db.update(harnesses).set({ baseUrl: stored }).where(eq(harnesses.id, created.id));
+  const listed = (await call(router.harnesses.list, undefined, { context }))[0]!;
+  expect(listed).toMatchObject({ baseUrl: "https://llm.example.test/v1" });
+  expect(JSON.stringify([listed, await call(router.harnesses.get, { id: created.id }, { context })])).not.toContain("secret");
+
+  // Sent back as shown (a rename), it keeps the stored credentials and is not refused.
+  const renamed = await call(router.harnesses.update, { ...local, id: created.id, baseUrl: "https://llm.example.test/v1", name: "Renamed" }, { context });
+  expect(JSON.stringify(renamed)).not.toContain("secret");
+  expect((await context.db.select().from(harnesses).where(eq(harnesses.id, created.id)))[0]).toMatchObject({ name: "Renamed", baseUrl: stored });
+
+  // Pointed elsewhere, it is the new address that is stored.
+  await call(router.harnesses.update, { ...local, id: created.id, baseUrl: "https://other.example.test/v1" }, { context });
+  expect((await context.db.select().from(harnesses).where(eq(harnesses.id, created.id)))[0]).toMatchObject({ baseUrl: "https://other.example.test/v1" });
+});

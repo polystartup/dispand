@@ -10,7 +10,7 @@ import { managerProcedure, memberProcedure } from "../rpc/context.ts";
 import type { SecretBox } from "../secrets.ts";
 import { StorableText } from "../workflows/model.ts";
 import { apiKeyAad, loadCloudHarness } from "./cloud.ts";
-import { CloudFields, cloudRefusal, type CloudKind, isLoopback, Name } from "./model.ts";
+import { CloudFields, cloudRefusal, type CloudKind, isLoopback, Name, withoutCredentials } from "./model.ts";
 import { message, type MessageKey, type MessageValues } from "../messages/index.ts";
 
 /** A model the CLI is started with (`--model`): an alias like `opus` or a full model id. */
@@ -43,7 +43,8 @@ function toHarness(row: Row) {
       name,
       type: "cloud" as const,
       kind: row.kind as CloudKind,
-      ...(baseUrl === null ? {} : { baseUrl }),
+      // Never a user name or password an older save kept in it.
+      ...(baseUrl === null ? {} : { baseUrl: withoutCredentials(baseUrl) }),
       model: model ?? "",
       systemPrompt: systemPrompt ?? "",
       ...(maxTokens === null ? {} : { maxTokens }),
@@ -126,9 +127,11 @@ const update = managerProcedure
     if ((fields.type ?? "cli") !== current.type) bad("harness.kindFixed");
     let values;
     if (fields.type === "cloud") {
+      // The address is listed without a user name and password an older save kept in it: sent back as listed, it keeps them.
+      const baseUrl = current.baseUrl !== null && fields.baseUrl === withoutCredentials(current.baseUrl) ? current.baseUrl : fields.baseUrl;
       // A saved key only ever goes to the provider and URL it was saved for.
-      const sameTarget = fields.kind === current.kind && (fields.baseUrl ?? null) === current.baseUrl;
-      values = cloudValues(fields, id, context.secrets, sameTarget ? current.apiKeySealed : null);
+      const sameTarget = fields.kind === current.kind && (baseUrl ?? null) === current.baseUrl;
+      values = cloudValues({ ...fields, baseUrl }, id, context.secrets, sameTarget ? current.apiKeySealed : null);
     } else {
       // Keep existing harnesses editable when the runner or its CLI is gone.
       if (fields.runnerId !== current.runnerId || fields.kind !== current.kind) {

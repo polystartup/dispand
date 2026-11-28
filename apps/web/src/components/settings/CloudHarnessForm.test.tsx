@@ -89,3 +89,15 @@ test("a malformed address with a key entered is an error on its field, not a cra
   await waitFor(() => expect(screen.getByLabelText("Base URL (optional)").getAttribute("aria-invalid")).toBe("true"));
   expect(screen.getByLabelText("Name").getAttribute("aria-invalid")).toBeNull();
 });
+
+test("an address with a user name and password is refused on its field, in the page's language", async () => {
+  const { user } = form(undefined, "fr");
+  await user.type(screen.getByLabelText("Nom"), "Claude API");
+  await user.type(screen.getByLabelText("Clé d’API"), "sk-secret");
+  await user.type(screen.getByLabelText("URL de base (facultative)"), "https://me:pw@api.example.com");
+  await user.click(screen.getByRole("button", { name: "Créer le harnais" }));
+  expect(screen.getAllByRole("alert").map((a) => a.textContent)).toContain(
+    "Retirez l'identifiant et le mot de passe de l'adresse : la clé a son propre champ.",
+  );
+  expect(fake.harnesses.create).not.toHaveBeenCalled();
+});

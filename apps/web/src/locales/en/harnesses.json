@@ -123,7 +123,8 @@
       "model": "Enter a model id of at most 200 characters.",
       "systemPrompt": "The prompt is too long, or holds a character that can't be stored.",
       "maxTokens": "Enter a whole number from 1 to 1,000,000.",
-      "temperature": "Enter a number from 0 to 2."
+      "temperature": "Enter a number from 0 to 2.",
+      "baseUrlCredentials": "Remove the user name and password from the address: the key has its own field."
     }
   },
   "addRunner": {
