@@ -6,7 +6,7 @@ import { call } from "@orpc/server";
 import { and, eq, sql } from "drizzle-orm";
 import { expect, onTestFinished, test, vi } from "vitest";
 import { closeDb, createDb, type Db } from "../db/client.ts";
-import { harnesses, messages, questions, runs, stepRuns, type RunTrigger } from "../db/schema.ts";
+import { harnesses, messages, questions, runs, skills, stepRuns, type RunTrigger } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { runnerWithClis, asCli, ownerContext } from "../runners/test-support.ts";
 import { captureTelemetry } from "../telemetry/testing.ts";
@@ -452,16 +452,15 @@ test("with a limit of 1, a Job waiting on a Question lets the next Job run, and 
   expect(all).not.toContain("Sort the mail");
 });
 
-/** A chat Job of the setup's agent, started on a free slot; its first turn has ended. */
-async function openChat(s: Awaited<ReturnType<typeof setup>>) {
+/** A chat Job of the setup's agent (or of trigger `talkId`), started on a free slot; its first turn has ended. */
+async function openChat(s: Awaited<ReturnType<typeof setup>>, talkId?: string) {
   const { context, agent, engine, emit, sessionOf } = s;
-  const talk = await call(
-    router.triggers.create,
-    { agentId: agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } },
-    { context },
-  );
-  const { runId } = await call(router.jobs.start, { triggerId: talk.id }, { context: { ...context, engine } });
-  s.chat(talk.id);
+  const talk =
+    talkId ??
+    (await call(router.triggers.create, { agentId: agent.id, name: "Talk", instructions: "Help.", config: { kind: "manual", placement: "chat" } }, { context }))
+      .id;
+  const { runId } = await call(router.jobs.start, { triggerId: talk }, { context: { ...context, engine } });
+  s.chat(talk);
   await emit(sessionOf(runId)!, { type: "text", delta: "How can I help?" });
   await emit(sessionOf(runId)!, { type: "turn-end" });
   return runId;
@@ -570,6 +569,153 @@ test("a turn-end applied after the next message was sent keeps the slot for that
   await vi.waitFor(() => expect(started([chat, x])).toEqual([chat, x]));
   expect(await working()).toBe(1);
 });
+
+/**
+ * An Assistant chat of the setup's harness, opened (`openChat`), and a skill of the workspace it
+ * doesn't have: invoking it gives the chat a new session to load it.
+ */
+async function assistantChat(s: Awaited<ReturnType<typeof setup>>) {
+  const { context, harness } = s;
+  const pkg = await call(router.skills.create, { name: "tidy", description: "Tidy", instructions: "Trim cells.", requiredToolIds: [] }, { context });
+  const [skill] = await context.db.select().from(skills).where(eq(skills.packageId, pkg.packageId));
+  const { triggerId } = await call(router.agents.ensureAssistant, { harnessId: harness.id }, { context });
+  return { chat: await openChat(s, triggerId), skill: skill! };
+}
+
+/** Each start of the run's sessions, in order (a resume keeps its run key). */
+const startsOf = (s: Awaited<ReturnType<typeof setup>>, runId: string) =>
+  s.adapter.starts.filter((x) => x.start.runKey.startsWith(`${runId}-`)).map((x) => x.start);
+
+// A step's new session clears `working` with the rest of the old one's state (`replaceSession`,
+// `reopen`), without handing a slot on: these show it never holds one there.
+
+test("a skill that reloads a chat holding a slot waits for its turn; the step queued behind keeps its place", async () => {
+  const s = await setup(1);
+  const { job, step, adapter, engine, emit, sessionOf, started, working, finish } = s;
+  const { chat, skill } = await assistantChat(s);
+  const first = sessionOf(chat)!;
+  await emit(first, { type: "cli-session", cliSessionId: "history" });
+  await engine.sendChat(chat, "Sort my inbox");
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  const x = await job();
+  // It holds the slot, its turn not reported yet: nothing queues the skill's message.
+  expect(await step(chat)).toMatchObject({ working: true, turnStatus: "idle" });
+  await expect(engine.sendChat(chat, "/tidy:tidy", skill.id)).rejects.toMatchObject({ code: "INVALID", data: { key: "engine.skillWait" } });
+  expect(await step(chat)).toMatchObject({ working: true, sessionId: first, resumeAfterSession: null });
+  expect((await step(x)).queuedAt).toBeInstanceOf(Date);
+  expect(await working()).toBe(1);
+
+  // Its turn ends: the slot goes to x. The skill then reloads it, and it resumes once x is done.
+  await emit(first, { type: "text", delta: "Sorted." });
+  await emit(first, { type: "turn-end" });
+  await vi.waitFor(() => expect(started([chat, x])).toEqual([chat, x]));
+  await engine.sendChat(chat, "/tidy:tidy", skill.id);
+  expect(await step(chat)).toMatchObject({ working: false, queuedAt: null, resumeAfterSession: { sessionId: first } });
+  await emit(first, { type: "session-ended" });
+  await vi.waitFor(async () => expect((await step(chat)).queuedAt).toBeInstanceOf(Date));
+  expect(await working()).toBe(1);
+  await finish(x);
+  await vi.waitFor(() => expect(startsOf(s, chat)).toHaveLength(2));
+  expect(startsOf(s, chat)[1]).toMatchObject({ resumeCliSessionId: "history" });
+  expect(await step(chat)).toMatchObject({ working: true, queuedAt: null });
+  expect(await working()).toBe(1);
+});
+
+test("a chat queued for its message that a skill reloads leaves the queue, frees nothing, and queues again to resume", async () => {
+  const s = await setup(1);
+  const { job, step, engine, emit, sessionOf, working, finish } = s;
+  const { chat, skill } = await assistantChat(s);
+  const first = sessionOf(chat)!;
+  await emit(first, { type: "cli-session", cliSessionId: "history" });
+  const x = await job();
+  await engine.sendChat(chat, "Sort my inbox");
+  expect(await step(chat)).toMatchObject({ working: false, queueClass: "person" });
+  await engine.sendChat(chat, "/tidy:tidy", skill.id);
+  // Its new session waits for the former one to end, holding no slot and in no queue: x keeps its slot.
+  expect(await step(chat)).toMatchObject({ working: false, queuedAt: null, queueClass: null, pendingAction: { kind: "resume" } });
+  expect(await working()).toBe(1);
+  await emit(first, { type: "session-ended" });
+  await vi.waitFor(async () => expect(await step(chat)).toMatchObject({ queueClass: "resume", working: false }));
+  await finish(x);
+  await vi.waitFor(() => expect(startsOf(s, chat)).toHaveLength(2));
+  expect(startsOf(s, chat)[1]!.prompt).toContain("Sort my inbox");
+  expect(await step(chat)).toMatchObject({ working: true, queuedAt: null });
+  expect(await working()).toBe(1);
+});
+
+test.each([
+  ["succeeds", { type: "outputs-accepted", values: {} }],
+  ["fails", { type: "error", message: "The CLI crashed" }],
+] as const)("a chat Job that %s gives its slot back; continued, it queues to resume behind the step that took it", async (_, end) => {
+  const s = await setup(1);
+  const { job, step, adapter, engine, emit, sessionOf, started, working, finish } = s;
+  const chat = await openChat(s);
+  const first = sessionOf(chat)!;
+  await emit(first, { type: "cli-session", cliSessionId: "history" });
+  await engine.sendChat(chat, "Sort my inbox");
+  await vi.waitFor(() => expect(adapter.sent).toHaveLength(1));
+  const x = await job();
+  expect(await step(chat)).toMatchObject({ working: true });
+
+  // It ends while holding the slot: x is handed it as it closes.
+  await emit(first, end);
+  await vi.waitFor(() => expect(started([chat, x])).toEqual([chat, x]));
+  expect(await step(chat)).toMatchObject({ status: end.type === "error" ? "failed" : "succeeded", working: false, queuedAt: null });
+
+  // Continuing it frees no slot: it had none.
+  await engine.sendChat(chat, "One more thing.", undefined, [], true);
+  expect(await step(chat)).toMatchObject({ status: "running", working: false, queuedAt: null, resumeAfterSession: { sessionId: first } });
+  expect(await working()).toBe(1);
+  await emit(first, { type: "session-ended" });
+  await vi.waitFor(async () => expect((await step(chat)).queuedAt).toBeInstanceOf(Date));
+  await finish(x);
+  await vi.waitFor(() => expect(startsOf(s, chat)).toHaveLength(2));
+  expect(startsOf(s, chat)[1]).toMatchObject({ resumeCliSessionId: "history" });
+  expect(await working()).toBe(1);
+});
+
+test.each(["queued", "handed a slot, its session not started yet"] as const)(
+  "a step %s when its workflow is stopped gives its place back; continuing the chat reopens it holding none",
+  async (state) => {
+    const chatAndSide = (agentId: string): WorkflowDef => ({
+      trigger: { type: "manual", field: { id: "n_chat", key: "brief", type: "chat", label: "Brief", agentId, prompt: "Ask what to tidy." } },
+      steps: [{ id: "n_side", key: "side", type: "agent", name: "Side", agentId, prompt: "Tidy up." }],
+      edges: [],
+    });
+    const s = await setup(1);
+    const { context, agent, job, step, engine, emit, started, working } = s;
+    const workflow = await call(router.workflows.create, { name: "Tidy" }, { context });
+    await call(router.workflows.update, { id: workflow.id, name: "Tidy", def: chatAndSide(agent.id) }, { context });
+    const run = await engine.startRun(workflow.id);
+    const chat = (await step(run, "n_chat")).sessionId!;
+    await emit(chat, { type: "cli-session", cliSessionId: "history" });
+    expect((await step(run, "n_side")).queuedAt).toBeInstanceOf(Date);
+    const x = await job();
+    if (state !== "queued") {
+      // Between handing n_side the chat's slot and its session's start (`handOver`).
+      await context.db
+        .update(stepRuns)
+        .set({ working: false })
+        .where(eq(stepRuns.id, (await step(run, "n_chat")).id));
+      await context.db
+        .update(stepRuns)
+        .set({ working: true, queuedAt: null, queueClass: null })
+        .where(eq(stepRuns.id, (await step(run, "n_side")).id));
+    }
+    expect(await working()).toBe(1);
+
+    // Stopped: every step fails, n_side without ever starting, and x is handed the slot.
+    await engine.stopRun(run);
+    await vi.waitFor(() => expect(started([run, x])).toEqual([run, x]));
+    expect(await step(run, "n_side")).toMatchObject({ status: "failed", startedAt: null, working: false, queuedAt: null });
+    expect(await working()).toBe(1);
+
+    // Continued: n_side waits again, holding no slot and in no queue until the run goes on.
+    await engine.sendChat(run, "Go on.", undefined, [], true);
+    expect(await step(run, "n_side")).toMatchObject({ status: "pending", working: false, queuedAt: null, queueClass: null });
+    expect(await working()).toBe(1);
+  },
+);
 
 test("a step closed meanwhile takes no slot", async () => {
   const { context, harness, job, step, engine, working } = await setup(2);
