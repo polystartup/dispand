@@ -57,6 +57,8 @@ const projects = [
 
 export default defineConfig({
   testDir: "./e2e",
+  // Removes the cookies the setup projects saved.
+  globalTeardown: "./e2e/global-teardown.ts",
   // Required: more workers would share an app, its owner and its data (and zz-questions.spec.ts
   // and zzz-telemetry.spec.ts must stay last in their chain).
   workers: 1,
