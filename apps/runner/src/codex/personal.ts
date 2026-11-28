@@ -57,9 +57,10 @@ export class CodexSubscription {
   renew(rejected: CodexCredential): Promise<CodexCredential | undefined> {
     return this.serial(async () => {
       if (await this.o.subscriptions.givenUp("codex")) return this.deny();
-      // Another request's renewal already replaced it: one refresh for every request it failed.
-      const now = await this.fetch(false);
-      if (now && now.authorization !== rejected.authorization) return now;
+      // Another request's renewal already replaced it: one refresh for every request it failed. A
+      // login that no longer serves the enrolled identity isn't this source's to renew.
+      const now = await this.fetch();
+      if (now?.authorization !== rejected.authorization) return now;
       let renewed: CodexCredential | undefined;
       // Codex reports the account even when its refresh failed: the same token is no renewal.
       const served = async () => {
@@ -84,8 +85,7 @@ export class CodexSubscription {
   }
 
   // shortcut: one app-server per read, a few hundred ms per model request; keep one open per grant if that shows.
-  private async fetch(denies = true): Promise<CodexCredential | undefined> {
-    const deny = () => (denies ? this.deny() : undefined);
+  private async fetch(): Promise<CodexCredential | undefined> {
     const path = this.o.codexPath();
     if (!path) return undefined;
     const timeoutMs = this.o.timeoutMs ?? 15_000;
@@ -95,9 +95,9 @@ export class CodexSubscription {
       const auth = await rpc.request("getAuthStatus", { includeToken: true, refreshToken: false });
       const { activeSessionId, sessions } = await rpc.request("accountSession/list", {});
       const active = sessions.find((s) => s.sessionId === activeSessionId);
-      if (auth.authMethod !== "chatgpt" || !auth.authToken || !active?.userId || !active.selectedWorkspaceAccountId) return deny();
+      if (auth.authMethod !== "chatgpt" || !auth.authToken || !active?.userId || !active.selectedWorkspaceAccountId) return this.deny();
       // The user and the account both: a renewal or a sign-in that changed either serves nothing.
-      if (identityDigest(active.userId, active.selectedWorkspaceAccountId) !== this.o.identity) return deny();
+      if (identityDigest(active.userId, active.selectedWorkspaceAccountId) !== this.o.identity) return this.deny();
       this.told = false;
       return { authorization: `Bearer ${auth.authToken}`, "chatgpt-account-id": active.selectedWorkspaceAccountId };
     } catch {

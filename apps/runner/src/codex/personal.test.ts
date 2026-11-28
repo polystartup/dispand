@@ -201,10 +201,8 @@ test.each([
   ["user", "user-2", "acct-1"],
   ["account", "user-1", "acct-2"],
 ])("a renewal that changes the provider %s is refused", async (_, user, account) => {
-  const s = await supervisor();
+  const s = await supervisor({ FAKE_CODEX_SESSIONS_RENEWED: signedInAs(user, account) });
   const before = await s.credential.read();
-  await writeFile(s.sessionsFile, signedInAs(user, account));
-  await writeFile(s.authFile, auth(NEW));
   expect(await s.credential.renew(before!)).toBeUndefined();
   expect(await s.credential.read()).toBeUndefined();
   expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
@@ -213,12 +211,22 @@ test.each([
   expect(await s.credential.read()).toEqual({ authorization: `Bearer ${NEW}`, "chatgpt-account-id": "acct-1" });
 });
 
+test("a login signed in as someone else since is not renewed for a refused request", async () => {
+  const s = await supervisor();
+  const before = await s.credential.read();
+  await writeFile(s.sessionsFile, signedInAs("user-2", "acct-1"));
+  expect(await s.credential.renew(before!)).toBeUndefined();
+  expect(await s.refreshes()).toBe(0);
+  expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
+});
+
 test.each([
   ["fails", { FAKE_CODEX_REFRESH: "fail" }],
   ["leaves the refused token in place", { FAKE_CODEX_AUTH_RENEWED: auth(OLD) }],
+  ["rewrites the login but leaves the refused token", { FAKE_CODEX_AUTH_RENEWED: auth(OLD), FAKE_CODEX_REFRESH_WRITES_LOGIN: "1" }],
 ])("a renewal that %s asks for one sign-in once renewal gives up, and a fresh sign-in serves again", async (_, env) => {
   const s = await supervisor(env);
-  vi.spyOn(console, "error").mockImplementation(() => {});
+  const logged = vi.spyOn(console, "error").mockImplementation(() => {});
   const r = await relayed(s.credential, NEW);
   // The CLI resends its request after each refusal: each one is sent with the login's token, then renewed.
   for (let i = 0; i < RENEWAL_ATTEMPTS; i++) {
@@ -232,6 +240,7 @@ test.each([
   expect(r.seen).toEqual(Array.from({ length: RENEWAL_ATTEMPTS }, () => `Bearer ${OLD}`));
   expect(await s.refreshes()).toBe(RENEWAL_ATTEMPTS);
   expect(s.onSignInNeeded).toHaveBeenCalledTimes(1);
+  expect(logged).toHaveBeenCalledTimes(1);
   // A fresh sign-in as the same account rewrites the login: the same source serves it, with no restart.
   await writeFile(join(s.home, "auth.json"), JSON.stringify({ signedIn: "again" }));
   await writeFile(s.authFile, auth(NEW));

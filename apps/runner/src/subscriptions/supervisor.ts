@@ -223,7 +223,6 @@ export class Subscriptions {
   private async renewOnce(served: () => Promise<boolean>): Promise<boolean> {
     const codex = this.codex;
     if (!codex || (await this.givenUp())) return false;
-    const stamp = await this.stamp();
     if (
       await codexRenew(codex.path, codex.env, codex.timeoutMs)
         .then(served)
@@ -233,7 +232,8 @@ export class Subscriptions {
       return true;
     }
     if (++this.failures >= RENEWAL_ATTEMPTS) {
-      this.gaveUp.set("codex", stamp);
+      // Stamped after the attempt: what the renewal itself wrote to the login is no fresh sign-in.
+      this.gaveUp.set("codex", await this.stamp());
       console.error("dispand-runner: the Codex subscription can't renew: sign in again with `dispand-runner sign-in codex`");
     }
     return false;
