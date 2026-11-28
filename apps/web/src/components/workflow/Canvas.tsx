@@ -66,6 +66,9 @@ const icons = { button: MousePointerClick, chat: MessageCircle, schedule: Clock,
 /** Where a condition's Then and Else leave its card. */
 const BRANCHES = ["then", "else"] as const;
 const branchAt: Record<Branch, string> = { then: "25%", else: "75%" };
+/** A "+" under a node is pressed from its top down: just above it is the node's connection handle. */
+const underNode = "size-5 after:top-0 after:translate-y-0";
+
 const handle = "!size-2.5 !border-0 !bg-faint";
 
 function Card({ data }: NodeProps<Node<CardData>>) {
@@ -108,7 +111,7 @@ function Card({ data }: NodeProps<Node<CardData>>) {
               <AddStepMenu
                 onPick={(type) => data.onAdd(type, branch)}
                 label={t("canvas.addOnBranch", { name: title, branch: t(`canvas.${branch}`) })}
-                className="size-5"
+                className={underNode}
                 inLoop={data.inLoop}
               />
               <span className="text-[11px] font-medium text-muted">{t(`canvas.${branch}`)}</span>
@@ -121,7 +124,7 @@ function Card({ data }: NodeProps<Node<CardData>>) {
           <AddStepMenu
             onPick={(type) => data.onAdd(type)}
             label={t("canvas.addAfter", { name: title })}
-            className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2"
+            className={cn("absolute top-full left-1/2 mt-1 -translate-x-1/2", underNode)}
             inLoop={data.inLoop}
           />
         </>
@@ -146,12 +149,16 @@ function Group({ data }: NodeProps<Node<GroupData>>) {
       </div>
       {data.empty && (
         <div className="absolute inset-x-0 flex flex-col items-center gap-1" style={{ top: GROUP.header + 8 }}>
-          <AddStepMenu onPick={data.onAddInside} label={t("canvas.addInside", { name: data.name })} className="size-5" inLoop />
+          <AddStepMenu onPick={data.onAddInside} label={t("canvas.addInside", { name: data.name })} className={underNode} inLoop />
           <span className="text-[11px] text-muted">{t("canvas.repeatHere")}</span>
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className={handle} />
-      <AddStepMenu onPick={data.onAdd} label={t("canvas.addAfter", { name: data.name })} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" />
+      <AddStepMenu
+        onPick={data.onAdd}
+        label={t("canvas.addAfter", { name: data.name })}
+        className={cn("absolute top-full left-1/2 mt-1 -translate-x-1/2", underNode)}
+      />
     </div>
   );
 }

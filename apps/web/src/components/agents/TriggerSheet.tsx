@@ -35,6 +35,8 @@ type Props = {
   onClose: () => void;
 };
 
+const segment = "min-h-11 rounded-lg py-1.5 text-[13px] font-medium transition";
+
 /** Creates or edits one of an agent's triggers. A trigger keeps its kind: manual (chat or button), schedule or table change. Mount it only while open. */
 export function TriggerSheet({ agentId, trigger, onClose }: Props) {
   const { t } = useTranslation("agents");
@@ -173,10 +175,7 @@ export function TriggerSheet({ agentId, trigger, onClose }: Props) {
                   role="radio"
                   aria-checked={starts === s}
                   onClick={() => setStarts(s)}
-                  className={cn(
-                    "min-h-11 rounded-lg py-1.5 text-[13px] font-medium transition",
-                    starts === s ? "bg-surface shadow-card" : "text-muted hover:text-fg",
-                  )}
+                  className={cn(segment, starts === s ? "bg-surface shadow-card" : "text-muted hover:text-fg")}
                 >
                   {t(`sheet.start.${s}.label`)}
                 </button>

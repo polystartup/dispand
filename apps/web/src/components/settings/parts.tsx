@@ -4,7 +4,11 @@ import { cn } from "@/lib/utils";
 
 /** The shared look of a settings list: one rounded card of rows. */
 export function List({ children }: { children: ReactNode }) {
-  return <ul className="focus-inset divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">{children}</ul>;
+  return (
+    <ul data-focus-inset className="divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">
+      {children}
+    </ul>
+  );
 }
 
 export function Empty({ title, text, children }: { title: string; text: string; children: ReactNode }) {

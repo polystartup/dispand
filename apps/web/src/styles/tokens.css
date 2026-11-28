@@ -148,7 +148,7 @@ summary {
 }
 
 /* A box that clips its rows (a list card, a menu) would cut their outline: it is drawn inside. */
-.focus-inset :focus-visible {
+[data-focus-inset] :focus-visible {
   outline-offset: -2px;
 }
 

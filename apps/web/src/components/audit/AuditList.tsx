@@ -38,19 +38,19 @@ function Actor({ row }: { row: Row }) {
 function Trace({ traceId, traceUrl }: { traceId: string; traceUrl: string | null }) {
   const { t } = useTranslation("audit");
   return (
-    <span className="inline-flex items-center gap-1">
+    <span className="inline-flex flex-wrap items-center gap-1">
       {t("trace.label")}{" "}
       {traceUrl ? (
         <a
           href={traceUrl.replaceAll("{traceId}", encodeURIComponent(traceId))}
           target="_blank"
           rel="noreferrer noopener"
-          className="font-mono text-accent underline underline-offset-2"
+          className="font-mono break-all text-accent underline underline-offset-2"
         >
           {traceId}
         </a>
       ) : (
-        <span className="font-mono">{traceId}</span>
+        <span className="font-mono break-all">{traceId}</span>
       )}
       <Button variant="ghost" size="icon" aria-label={t("trace.copy")} onClick={() => void navigator.clipboard.writeText(traceId).catch(() => undefined)}>
         <Copy aria-hidden />
@@ -98,7 +98,7 @@ export function AuditList({ filter = {}, live = false }: { filter?: Filter; live
   }
   return (
     <>
-      <ul className="focus-inset divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">
+      <ul data-focus-inset className="divide-y divide-line overflow-hidden rounded-2xl bg-surface shadow-card">
         {rows.map((row) => (
           <li key={row.id} className="px-5 py-3 text-[14px]">
             <div className="flex flex-wrap items-baseline gap-x-2">

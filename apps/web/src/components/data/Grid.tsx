@@ -51,6 +51,15 @@ type Props = {
   requiredParent?: FieldSchema;
 };
 
+/** A row's (or every row's) selection, pressed anywhere in its 44px. */
+function SelectBox({ label, checked, onChange }: { label: string; checked: boolean; onChange: (event: unknown) => void }) {
+  return (
+    <label className="grid size-11 place-items-center">
+      <input type="checkbox" aria-label={label} checked={checked} onChange={onChange} className="size-4 accent-[var(--accent)]" />
+    </label>
+  );
+}
+
 export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, onOpenRow, requiredParent }: Props) {
   const { t } = useTranslation(["data", "common"]);
   const typeLabel = useFieldTypeLabel();
@@ -167,27 +176,11 @@ export function Grid({ tableId, fields, onSchemaChanged, query, onQueryChange, o
       {
         id: "select",
         header: ({ table }) => (
-          <label className="grid size-11 place-items-center">
-            <input
-              type="checkbox"
-              aria-label={t("grid.selectAll")}
-              checked={table.getIsAllRowsSelected()}
-              onChange={table.getToggleAllRowsSelectedHandler()}
-              className="size-4 accent-[var(--accent)]"
-            />
-          </label>
+          <SelectBox label={t("grid.selectAll")} checked={table.getIsAllRowsSelected()} onChange={table.getToggleAllRowsSelectedHandler()} />
         ),
         cell: ({ row }) => (
           <span className="flex items-center gap-1">
-            <label className="grid size-11 place-items-center">
-              <input
-                type="checkbox"
-                aria-label={t("grid.select")}
-                checked={row.getIsSelected()}
-                onChange={row.getToggleSelectedHandler()}
-                className="size-4 accent-[var(--accent)]"
-              />
-            </label>
+            <SelectBox label={t("grid.select")} checked={row.getIsSelected()} onChange={row.getToggleSelectedHandler()} />
             <button
               type="button"
               aria-label={t("grid.open")}

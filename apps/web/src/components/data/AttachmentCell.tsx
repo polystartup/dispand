@@ -126,8 +126,8 @@ export function AttachmentEditor({
                   setError(null);
                   edit.mutate({ remove: id });
                 }}
-                // Small to look at, 44px to press.
-                className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-surface text-muted shadow-card after:absolute after:-inset-3 hover:text-fg"
+                // Small to look at, 44px to press: down and inwards, over its own file and never the next one.
+                className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-surface text-muted shadow-card after:absolute after:top-0 after:right-0 after:size-11 hover:text-fg"
               >
                 <X size={12} aria-hidden />
               </button>
