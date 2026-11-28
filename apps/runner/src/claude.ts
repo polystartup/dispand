@@ -238,7 +238,7 @@ function inputQueue(verbatim: (text: string) => Promise<boolean>, gate: Promise<
     },
     isClosed: () => closed,
     /** Ends the input: messages still queued are dropped, so no further turn starts. */
-    close() {
+    close: () => {
       closed = true;
       messages.length = 0;
       notify();
@@ -356,7 +356,7 @@ function claudeInput(ctx: { queryReady: Promise<ReturnType<typeof query>>; gate:
       unanswered.length = 0;
       unansweredBytes.clear();
     },
-    send(text: string) {
+    send: (text: string) => {
       if (admit(text)) say(text);
     },
     /** A steer joins the turn running now (`running`: the one the steer targets) only as its only message. */

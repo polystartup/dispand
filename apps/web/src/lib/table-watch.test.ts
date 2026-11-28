@@ -110,7 +110,7 @@ test(`past ${MAX_STREAM_TABLES} tables, the others are polled`, async () => {
   const extra = vi.fn();
   ids.forEach((id, i) => renderHook(() => useTableWatch(id, i === MAX_STREAM_TABLES ? extra : () => {})));
   await tick(REOPEN_MS);
-  expect((fake.rows.stream.mock.calls[0]![0] as { tableIds: string[] }).tableIds).toEqual(ids.slice(0, MAX_STREAM_TABLES));
+  expect(fake.rows.stream.mock.calls[0]![0].tableIds).toEqual(ids.slice(0, MAX_STREAM_TABLES));
   extra.mockClear();
   await tick(POLL_MS + DEBOUNCE_MS);
   expect(extra).toHaveBeenCalledTimes(1);

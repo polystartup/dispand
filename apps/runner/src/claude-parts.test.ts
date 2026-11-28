@@ -186,9 +186,10 @@ test("a turn's end settles a pending approval as not approved and leaves none fo
   expect(state.approval).toBeNull();
 });
 
-async function* stream(messages: SDKMessage[], end?: unknown): AsyncGenerator<SDKMessage> {
+/** Yields `messages`, then throws `end.thrown` if given: an Error or not, as the SDK may. */
+async function* stream(messages: SDKMessage[], end?: { thrown: unknown }): AsyncGenerator<SDKMessage> {
   for (const msg of messages) yield msg;
-  if (end !== undefined) throw end;
+  if (end) throw end.thrown;
 }
 
 test.each([
@@ -212,7 +213,7 @@ test.each([
   const input = { isClosed: () => how.closed, close: vi.fn() };
   const questions = { endAll: vi.fn() };
   const messages = [result(), result({ result: "again" })];
-  await readToEnd({ q: stream(messages, "end" in how ? how.end : undefined), read, input, questions, finish, sessionId: "ses_1" });
+  await readToEnd({ q: stream(messages, "end" in how ? { thrown: how.end } : undefined), read, input, questions, finish, sessionId: "ses_1" });
   expect(read.mock.calls).toEqual(messages.map((msg) => [msg]));
   if (message === null) expect(finish).not.toHaveBeenCalled();
   else expect(finish).toHaveBeenCalledExactlyOnceWith({ type: "error", message });
