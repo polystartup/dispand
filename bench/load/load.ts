@@ -1,6 +1,7 @@
 // The install and the people the load runs as: an owner and members of its one workspace, runners
 // with a Claude Code harness each, chat agents, schedule and poll triggers; then each chat's loop
 // and each person's open streams and page reads.
+import { setTimeout as delay } from "node:timers/promises";
 import { type Api, benchIp, client, type Person, signIn, type Timing } from "./api.ts";
 import { type Pace, POLL_ACTION, POLL_TOOL, SimRunner, type Turn } from "./runner.ts";
 import type { Recorder } from "./stats.ts";
@@ -40,11 +41,8 @@ export function deliver(turn: Watched, length: number, now: number): { grew: num
 
 type Member = { person: Person; api: Api };
 
-const sleep = (ms: number, signal?: AbortSignal) =>
-  new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, ms);
-    signal?.addEventListener("abort", () => (clearTimeout(timer), resolve()), { once: true });
-  });
+/** Waits `ms`, or less once `signal` aborts (its listener goes with the timer). */
+const sleep = (ms: number, signal?: AbortSignal) => delay(Math.max(0, ms), undefined, { signal }).catch(() => undefined);
 
 export class Load {
   readonly counts = new Map<string, number>();
@@ -262,6 +260,19 @@ export class Load {
       next += every;
       void pages[i % pages.length]!().catch(() => undefined);
     }
+  }
+
+  /** Deltas written and not delivered yet, and how long the oldest has waited (ms). */
+  undelivered(now = performance.now()): { deltas: number; oldestMs: number } {
+    let deltas = 0;
+    let oldestMs = 0;
+    for (const { turn } of this.chats.values()) {
+      const first = turn?.emitted[turn.delivered];
+      if (!turn || !first) continue;
+      deltas += turn.emitted.length - turn.delivered;
+      oldestMs = Math.max(oldestMs, now - first[1]);
+    }
+    return { deltas, oldestMs };
   }
 
   /** Events the runners made that the server hasn't acked yet. */

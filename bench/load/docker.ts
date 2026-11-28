@@ -12,6 +12,12 @@ export async function docker(...args: string[]): Promise<string> {
   return (await exec("docker", args, { maxBuffer: 64 * 2 ** 20 })).stdout.trim();
 }
 
+/** `docker run -d --rm` with `env` passed by name, so its values (secrets) stay off the command line. */
+async function run(env: Record<string, string>, ...args: string[]): Promise<void> {
+  const named = Object.keys(env).flatMap((key) => ["-e", key]);
+  await exec("docker", ["run", "-d", "--rm", ...named, ...args], { env: { ...process.env, ...env } });
+}
+
 /** A port free right now on 127.0.0.1. */
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -49,39 +55,19 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  */
 export async function startPostgres(name: string, limits: Limits): Promise<string> {
   const port = await freePort();
-  await docker(
-    "run",
-    "-d",
-    "--rm",
-    "--name",
-    name,
-    "--network",
-    "host",
-    ...limitArgs(limits),
-    "-e",
-    "POSTGRES_USER=dispand",
-    "-e",
-    "POSTGRES_PASSWORD=dispand",
-    "-e",
-    "POSTGRES_DB=dispand",
-    "-e",
-    "POSTGRES_INITDB_ARGS=--locale-provider=builtin --locale=C.UTF-8",
-    await postgresImage(),
-    "-c",
-    `port=${port}`,
-    "-c",
-    "listen_addresses=127.0.0.1",
-    "-c",
-    "shared_preload_libraries=pg_stat_statements",
-    "-c",
-    "shared_buffers=512MB",
-    "-c",
-    "max_connections=50",
-  );
+  const password = randomBytes(18).toString("base64url");
+  const env = {
+    POSTGRES_USER: "dispand",
+    POSTGRES_PASSWORD: password,
+    POSTGRES_DB: "dispand",
+    POSTGRES_INITDB_ARGS: "--locale-provider=builtin --locale=C.UTF-8",
+  };
+  const settings = [`port=${port}`, "listen_addresses=127.0.0.1", "shared_preload_libraries=pg_stat_statements", "shared_buffers=512MB", "max_connections=50"];
+  await run(env, "--name", name, "--network", "host", ...limitArgs(limits), await postgresImage(), ...settings.flatMap((setting) => ["-c", setting]));
   for (let i = 0; ; i++) {
     try {
       await docker("exec", name, "pg_isready", "-q", "-h", "127.0.0.1", "-p", String(port), "-U", "dispand");
-      return `postgres://dispand:dispand@127.0.0.1:${port}/dispand`;
+      return `postgres://dispand:${password}@127.0.0.1:${port}/dispand`;
     } catch (err) {
       if (i >= 120) throw err;
       await sleep(500);
@@ -118,16 +104,13 @@ export async function startApp(name: string, options: AppOptions): Promise<{ url
     DISPAND_BENCH_PROBE: "/bench/out/probe.jsonl",
     NODE_OPTIONS: nodeOptions,
   };
-  await docker(
-    "run",
-    "-d",
-    "--rm",
+  await run(
+    env,
     "--name",
     name,
     "--network",
     "host",
     ...limitArgs(options.limits),
-    ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
     "-v",
     `${options.probe}:/bench/probe.ts:ro`,
     "-v",

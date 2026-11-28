@@ -23,7 +23,10 @@ poll triggers. Then it ramps streaming chats step by step, while the rest keeps 
 
 ## Running it
 
-Docker on Linux, with host networking.
+Docker on Linux, with host networking and cgroup v2 (the containers' CPU comes from their
+`cpu.stat`). Both containers listen on 127.0.0.1 only, with fresh secrets and a fresh database
+password at each run; still, run it on a machine whose other users you trust, as anything local can
+reach a loopback port.
 
 ```sh
 pnpm build:image          # the checkout's image, dispand/app:local; or pass --image <ref>

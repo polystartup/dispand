@@ -1,9 +1,9 @@
 // `pnpm bench:load`: starts a fresh PostgreSQL and the app's image, sets up an install, then ramps
 // streaming chats step by step while runners, people, schedules and polls keep going, and records
 // what each step cost the app's process and the database. README.md says how to read it.
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { loadavg } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { containerCpu, docker, startApp, startPostgres, stop } from "./docker.ts";
@@ -41,8 +41,11 @@ const { values: args } = parseArgs({
 const num = (name: keyof typeof args) => Number(args[name]);
 
 const here = fileURLToPath(new URL(".", import.meta.url));
-const outDir = args.out ?? join(here, "results", new Date().toISOString().replace(/[:.]/g, "-"));
+// Absolute: Docker mounts it, and would take a bare name for a volume's.
+const outDir = resolve(args.out ?? join(here, "results", new Date().toISOString().replace(/[:.]/g, "-")));
 mkdirSync(outDir, { recursive: true });
+// The app's user in the image (uid 1000) writes its samples and profile there, whoever runs this.
+chmodSync(outDir, 0o777);
 const id = `dispand-bench-${process.pid}`;
 const steps = args.chats.split(",").map(Number);
 
@@ -56,6 +59,8 @@ type Step = {
   harness: Record<string, Summary>;
   postgres: { cpu: number; commitsPerSecond: number; active: Summary; idle: Summary; waits: Record<string, number>; top: Statement[] };
   backlog: Summary;
+  /** Deltas written and not delivered at the step's end, and how long the oldest had waited (ms). */
+  undelivered: { deltas: number; oldestMs: number };
   host: { load1Start: number; load1End: number; busyCores: number };
 };
 
@@ -140,8 +145,13 @@ try {
       );
     }, 1000);
     await new Promise((resolve) => setTimeout(resolve, num("step") * 1000));
+    // The load's own numbers at the step's end, before the slower reads below.
     clearInterval(ticker);
     const seconds = (Date.now() - started) / 1000;
+    const rates = Object.fromEntries([...load.counts].map(([name, n]) => [name, n / seconds]));
+    const latency = rec.take();
+    const harness = series(harnessSamples);
+    const undelivered = load.undelivered();
     const [pgCpu1, appCpu1, commits1, top] = await Promise.all([containerCpu(pgName), containerCpu(appName), db.commits(), db.top()]);
     const busy1 = hostBusy();
     const probe = readFileSync(join(outDir, "probe.jsonl"), "utf8")
@@ -155,11 +165,11 @@ try {
     const step: Step = {
       chats,
       seconds,
-      rates: Object.fromEntries([...load.counts].map(([name, n]) => [name, n / seconds])),
-      latency: rec.take(),
+      rates,
+      latency,
       app: series(probe),
       appContainerCpu: (appCpu1 - appCpu0) / seconds,
-      harness: series(harnessSamples),
+      harness,
       postgres: {
         cpu: (pgCpu1 - pgCpu0) / seconds,
         commitsPerSecond: (commits1 - commits0) / seconds,
@@ -169,6 +179,7 @@ try {
         top,
       },
       backlog: summarize(backlog),
+      undelivered,
       host: {
         load1Start,
         load1End: loadavg()[0]!,
@@ -198,8 +209,9 @@ try {
         f(step.harness.elu?.max, 2).padStart(11),
       ].join("  "),
     );
-    if ((d?.p99 ?? 0) > num("max-p99")) {
-      console.log(`delivery p99 above ${args["max-p99"]} ms: the ramp stops here`);
+    // A delta still waiting counts too: a stream that stopped delivering has no latency to report.
+    if (Math.max(d?.p99 ?? 0, undelivered.oldestMs) > num("max-p99")) {
+      console.log(`delivery p99 or the oldest undelivered delta above ${args["max-p99"]} ms: the ramp stops here`);
       break;
     }
   }

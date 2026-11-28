@@ -118,6 +118,8 @@ export class SimRunner {
     }
     if (job) {
       emit({ type: "result", text: "Done." });
+      // A Job's session ends with its result: no stop comes.
+      this.live.delete(sessionId);
       this.hooks.count("jobs");
     } else {
       emit({ type: "turn-end", turnId });

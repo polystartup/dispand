@@ -37,15 +37,16 @@ describe("hotspots", () => {
     const frame = (functionName: string, url: string) => ({ functionName, url, lineNumber: 0 });
     const profile = {
       nodes: [
-        { id: 1, callFrame: frame("(root)", ""), children: [2] },
+        { id: 1, callFrame: frame("(root)", ""), children: [2, 4] },
         { id: 2, callFrame: frame("handle", "file:///app/dist/server/a.js"), children: [3] },
-        { id: 3, callFrame: frame("parse", "file:///app/node_modules/zod/index.js") },
+        { id: 3, callFrame: frame("parse", "file:///app/node_modules/.pnpm/zod@4.0.0/node_modules/zod/index.js") },
+        { id: 4, callFrame: frame("(idle)", "") },
       ],
-      samples: [2, 3, 3, 3],
-      timeDeltas: [1000, 1000, 1000, 1000],
+      samples: [2, 3, 3, 3, 4],
+      timeDeltas: [1000, 1000, 1000, 1000, 5000],
     };
     const result = hotspots(profile);
-    expect(result.totalMs).toBe(4);
+    expect(result).toMatchObject({ totalMs: 4, idleMs: 5 });
     expect(result.selfByPackage[0]).toMatchObject({ key: "zod", ms: 3 });
     expect(result.totalByName.find((row) => row.key.startsWith("handle"))).toMatchObject({ ms: 4, share: 1 });
   });

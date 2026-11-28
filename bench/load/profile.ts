@@ -14,8 +14,9 @@ export function hotspots(profile: Profile) {
   profile.samples.forEach((id, i) => self.set(id, (self.get(id) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000));
 
   const name = ({ callFrame: f }: Node) => `${f.functionName || "(anonymous)"} ${f.url.replace(/^.*\/node_modules\//, "")}:${f.lineNumber + 1}`;
+  // The last node_modules is the package's own (pnpm nests them under .pnpm).
   const pkg = ({ callFrame: { url, functionName } }: Node) =>
-    /node_modules\/((?:@[^/]+\/)?[^/]+)/.exec(url)?.[1] ??
+    /.*node_modules\/((?:@[^/]+\/)?[^/]+)/.exec(url)?.[1] ??
     (url.startsWith("node:")
       ? "node"
       : url
@@ -31,8 +32,14 @@ export function hotspots(profile: Profile) {
   const selfByPackage = new Map<string, number>();
   const totalByName = new Map<string, number>();
   let all = 0;
+  let idle = 0;
   for (const [id, ms] of self) {
     const node = byId.get(id)!;
+    // Waiting isn't CPU: it is reported apart, out of the shares.
+    if (node.callFrame.functionName === "(idle)") {
+      idle += ms;
+      continue;
+    }
     all += ms;
     add(selfByName, name(node), ms);
     add(selfByPackage, pkg(node), ms);
@@ -46,7 +53,7 @@ export function hotspots(profile: Profile) {
       .sort((a, b) => b[1] - a[1])
       .slice(0, n)
       .map(([key, ms]) => ({ key, ms, share: ms / all }));
-  return { totalMs: all, selfByName: top(selfByName, 30), selfByPackage: top(selfByPackage, 20), totalByName: top(totalByName, 40) };
+  return { totalMs: all, idleMs: idle, selfByName: top(selfByName, 30), selfByPackage: top(selfByPackage, 20), totalByName: top(totalByName, 40) };
 }
 
 if (process.argv[1] && import.meta.filename === process.argv[1]) {
@@ -57,7 +64,7 @@ if (process.argv[1] && import.meta.filename === process.argv[1]) {
     console.log(`\n${title}`);
     for (const row of rows) console.log(`${(row.share * 100).toFixed(1).padStart(5)}%  ${(row.ms / 1000).toFixed(1).padStart(7)} s  ${row.key}`);
   };
-  console.log(`${(result.totalMs / 1000).toFixed(1)} s sampled`);
+  console.log(`${(result.totalMs / 1000).toFixed(1)} s of CPU sampled, ${(result.idleMs / 1000).toFixed(1)} s idle`);
   print("Self time by package", result.selfByPackage);
   print("Self time by function", result.selfByName);
   print("Total time by function (itself and what it called)", result.totalByName);
