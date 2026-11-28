@@ -10,6 +10,7 @@ import { useTranslation } from "react-i18next";
 import { api, orpc } from "../../lib/api.ts";
 import { canReopen, type RunSnapshot } from "../../lib/run-state.ts";
 import { refreshRun, useRunWatch } from "../../lib/run-watch.ts";
+import { StoppedWork } from "../chat/StoppedWork.tsx";
 import { ChatThread, turnActionKey } from "../chat/Thread.tsx";
 import { useStored } from "@/lib/message";
 import type { ChatSession } from "../../lib/chat-sessions.tsx";
@@ -261,6 +262,7 @@ function AfterChat({ run, chatStepId, def }: { run: RunSnapshot | null; chatStep
         </p>
       )}
       {chatStep?.status === "succeeded" && run && <Progress run={run} steps={followUps} def={def} />}
+      {run && (chatStep?.status === "failed" || run.run.status === "failed") && <StoppedWork run={run} def={def} />}
     </>
   );
 }
