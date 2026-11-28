@@ -18,13 +18,7 @@ export type MarketplaceSource =
   /** A skill site's index (`well-known.ts`): the source of a `well-known` marketplace's one entry. */
   | { type: "well-known"; url: string };
 
-/**
- * What a marketplace row reads: a Git repository with a `.claude-plugin/marketplace.json`, or that
- * is one plugin (`.claude-plugin/plugin.json`: one entry, its root); a Git repository of skills
- * (`skills/<name>/SKILL.md`, no marketplace file: one entry), or that is one skill (a root
- * `SKILL.md`: one entry, that skill); or a skill site's `/.well-known/skills/index.json` (one entry).
- */
-export type MarketplaceKind = "marketplace" | "skill-repo" | "well-known";
+export type { MarketplaceKind } from "../db/schema.ts";
 
 /** The parts of a manifest a `strict: false` entry carries itself (it is then the plugin's manifest). */
 export type EntryManifest = { hooks?: unknown; commands?: unknown; agents?: unknown; mcpServers?: unknown };

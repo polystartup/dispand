@@ -18,7 +18,13 @@
   Postgres with the builtin `C.UTF-8` locale. Every time column is `timestamp with time zone`
   (migration 0133), so a time reads the same whatever the zones of Node and of the database
   session that wrote it; tests run the database session outside UTC, and `db/time-zones.test.ts`
-  refuses a column without its zone.
+  refuses a column without its zone. A text column with a set of values (a status, a kind, a
+  role) takes them from one `as const` list, `text(name, { enum })`, which types it and builds its
+  CHECK (`oneOf` in `db/schema.ts`); `db/value-checks.test.ts` fails on a column typed without
+  one or on a value the database's check lacks. Migration 0137 added these checks, and
+  `step_runs`' slot invariants, `NOT VALID` (validating them: #658). Until then, a later migration
+  adds a check `NOT VALID` by hand (`db:generate` re-adds a column's check when its list changes),
+  and `db/value-checks.test.ts` fails on one that doesn't.
 - **Tables (Data):** `tables`, `fields` and `rows` are owner-scoped rows; tables, and the roots,
   events, attachments and memories, also belong to a workspace (`workspace_id`, from the table,
   run or agent they come from), and a primitive trigger fires only on its agent's workspace's

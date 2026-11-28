@@ -19,6 +19,7 @@ import { MAX_ACTIONS, redact, screenedFetch } from "./inbound.ts";
 import { ToolError } from "./errors.ts";
 import { storedText } from "../messages/index.ts";
 import { BlockedAddressError } from "./network.ts";
+import type { ToolTransport } from "../db/schema.ts";
 import { createOAuthProvider, stateSecrets, type OAuthMode, type OAuthRequest, type OAuthState, type OAuthStore } from "./oauth-provider.ts";
 
 export { ToolError } from "./errors.ts";
@@ -34,12 +35,7 @@ export const refusedListing = (actionsError: string | null) => {
     : /refused the request \((?:401|403)\)/.test(actionsError);
 };
 
-export const TRANSPORTS = ["streamable-http", "sse"] as const;
-export type ToolTransport = (typeof TRANSPORTS)[number];
-/** How an HTTP tool signs in: nothing, its sealed headers, or OAuth. */
-export const AUTHS = ["none", "headers", "oauth"] as const;
-export type ToolAuth = (typeof AUTHS)[number];
-export type OAuthStatus = "authorize" | "connected" | "reauthorize";
+export { AUTHS, TRANSPORTS, type OAuthStatus, type ToolAuth, type ToolTransport } from "../db/schema.ts";
 
 /** Where an HTTP tool is and how to call it. `headers` are opened from the secret box just for the call. */
 export type ToolTarget = {

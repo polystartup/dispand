@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Db, Tx } from "../db/client.ts";
-import { agentConsults, agents } from "../db/schema.ts";
+import { agentConsults, agents, type RoutingMode } from "../db/schema.ts";
 import { type Message, say } from "../messages/index.ts";
 
 // Consults: an agent asks another agent one question mid-Job. Who may consult whom is listed on
@@ -8,9 +8,7 @@ import { type Message, say } from "../messages/index.ts";
 // answers it and an answer steers the one that asked, so a pair stays on one side of
 // `configure`: both agents have it, or neither has.
 
-/** Who an agent may ask: nobody, everyone the rules allow, or those picked. Reused for people. */
-export type RoutingMode = "disabled" | "auto" | "whitelist";
-export const ROUTING_MODES = ["disabled", "auto", "whitelist"] as const satisfies readonly RoutingMode[];
+export { ROUTING_MODES, type RoutingMode } from "../db/schema.ts";
 
 export type ConsultEntry = { agentId: string };
 
