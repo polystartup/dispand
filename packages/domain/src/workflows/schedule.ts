@@ -116,9 +116,16 @@ export function nextFireAfter(cron: string, timezone: string, after: Date): Date
   return next;
 }
 
-/** The next `n` fires strictly after `from`. */
+/** The next `n` fires strictly after `from` (fewer for a cron that stops firing). */
 export function nextFires(cron: string, timezone: string, from: Date, n: number): Date[] {
-  return read(cron, timezone, from).nextRuns(n, from);
+  const fires: Date[] = [];
+  // Each from the one before: `SEARCH_YEARS` bounds the gap between two fires, not all `n`.
+  for (let at = from; fires.length < n;) {
+    const next = read(cron, timezone, at).nextRun(at);
+    if (!next) break;
+    fires.push((at = next));
+  }
+  return fires;
 }
 
 /**

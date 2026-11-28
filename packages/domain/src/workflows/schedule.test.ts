@@ -207,6 +207,9 @@ test("reads fires decades apart, and refuses a cron that never fires", () => {
   // A fifth Monday in February: 29 February on a Monday, 40 years apart across 2100.
   expect(nextFireAfter("0 9 * 2 1#5", "UTC", new Date("2026-11-15T00:00:00Z"))).toEqual(new Date("2044-02-29T09:00:00Z"));
   expect(nextFireAfter("0 9 * 2 1#5", "UTC", new Date("2072-03-01T00:00:00Z"))).toEqual(new Date("2112-02-29T09:00:00Z"));
+  expect(nextFires("0 9 * 2 1#5", "UTC", new Date("2026-11-15T00:00:00Z"), 3)).toEqual(
+    ["2044-02-29T09:00:00Z", "2072-02-29T09:00:00Z", "2112-02-29T09:00:00Z"].map((d) => new Date(d)),
+  );
   // Every minute of 02:00 on the last Sunday of March: Paris skips that hour each year.
   expect(cronProblem("* 2 * 3 0L", PARIS)).toMatchObject({ key: "workflows.schedule.unreadable" });
   expect(cronProblem("* 2 * 3 0L", "UTC")).toBeNull();
