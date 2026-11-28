@@ -37,7 +37,7 @@ test("a stopped run shows, in place, what it completed, what it recorded, the id
       def={undefined}
       run={snapshot({
         run: { error: lost },
-        steps: [step("s_chat", "failed", lost, 1, 9)],
+        steps: [step("s_other", "succeeded", null, 7, 8), step("s_chat", "failed", lost, 1, 9)],
         messages: [
           message("m3", "tool", "artifact_show", 4),
           message("m1", "user", "Chart my week", 2),
@@ -54,8 +54,12 @@ test("a stopped run shows, in place, what it completed, what it recorded, the id
   await user.click(opener);
   expect(opener.getAttribute("aria-expanded")).toBe("true");
   expect(part(/^Stopped on /).getAllByText(/./, { selector: "p" })).toHaveLength(1);
-  const completed = part("Completed before it stopped");
-  expect(completed.getAllByRole("listitem").map((li) => li.textContent)).toEqual(["1 reply from the agent", "1 tool call"]);
+  // A reply and a tool call are activity, not known to be complete: only the finished step and the artifact are.
+  expect(
+    part("Completed work")
+      .getAllByRole("listitem")
+      .map((li) => li.textContent),
+  ).toEqual(["Step finished", "Artifact shown: Weekly tasks"]);
   // Oldest first, each with its time.
   const events = part("Recorded activity").getAllByRole("listitem");
   expect(events.map((li) => li.querySelector("span")!.textContent)).toEqual([
@@ -65,9 +69,11 @@ test("a stopped run shows, in place, what it completed, what it recorded, the id
     "Tool called: artifact_show",
     "Artifact shown: Weekly tasks",
     "Question asked, with no answer",
+    "Step started",
+    "Step finished",
     "Step stopped",
   ]);
-  expect(events.map((li) => li.querySelector("time")!.dateTime)).toEqual([1, 2, 3, 4, 5, 6, 9].map((s) => at(s).toISOString()));
+  expect(events.map((li) => li.querySelector("time")!.dateTime)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map((s) => at(s).toISOString()));
   const ids = part("Identifiers");
   expect(ids.getByText("Job ID")).toBeTruthy();
   for (const id of ["run_1", "s_chat", "engine.chatRunnerGone"]) expect(ids.getByText(id)).toBeTruthy();
@@ -95,7 +101,7 @@ test("a conversation the person can go on with says so; words from outside have 
   const user = userEvent.setup();
   await user.click(screen.getByRole("button", { name: "Inspect what happened" }));
   expect(part(/^Stopped on /).getByText("claude is not signed in")).toBeTruthy();
-  expect(part("Completed before it stopped").getByText("No finished step, reply or tool call was recorded.")).toBeTruthy();
+  expect(part("Completed work").getByText("No finished step or artifact was recorded.")).toBeTruthy();
   expect(part("Identifiers").getByText("Run ID")).toBeTruthy();
   expect(part("Identifiers").queryByText("Error code")).toBeNull();
   expect(part("Next step").getByText(/send a message here/)).toBeTruthy();

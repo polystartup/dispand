@@ -67,10 +67,11 @@ function Details({ run, def }: { run: RunSnapshot; def: WorkflowDef | undefined 
   const names = new Map(def ? nodesOf(def).map((n) => [n.id, n.name]) : []);
   const name = (step: Step) => names.get(step.nodeId) ?? t("step");
   const failed = run.steps.filter((s) => s.status === "failed");
-  const completed = run.steps.filter((s) => s.status === "succeeded");
-  const replies = run.messages.filter((m) => m.role === "assistant").length;
-  // An artifact's card is its call's second row: the call's own trace is the one counted.
-  const calls = run.messages.filter((m) => m.role === "tool" && !(m.result && "artifactId" in m.result)).length;
+  // Only what is known to be complete: a reply may have been cut short, and a tool call is recorded as it starts.
+  const completed = [
+    ...run.steps.filter((s) => s.status === "succeeded").map((s) => ({ key: s.id, text: t("stoppedWork.finished", { name: name(s) }) })),
+    ...run.messages.flatMap((m) => (m.result && "artifactId" in m.result ? [{ key: m.id, text: t("stoppedWork.shown", { title: m.result.title }) }] : [])),
+  ];
   const stoppedAt = run.run.finishedAt ?? failed.at(-1)?.finishedAt;
   // Each reason once: a step's failure is usually the run's too.
   const reasons = [...new Set([...failed.map((s) => s.error), run.run.error].filter((e) => e !== null))];
@@ -86,15 +87,13 @@ function Details({ run, def }: { run: RunSnapshot; def: WorkflowDef | undefined 
         {reasons.length === 0 ? <p>{t("stoppedWork.noReason")}</p> : reasons.map((reason) => <p key={reason}>{stored(reason)}</p>)}
       </Part>
       <Part title={t("stoppedWork.completed")}>
-        {completed.length + replies + calls === 0 ? (
+        {completed.length === 0 ? (
           <p>{t("stoppedWork.nothing")}</p>
         ) : (
           <ul>
-            {completed.map((s) => (
-              <li key={s.id}>{t("stoppedWork.finished", { name: name(s) })}</li>
+            {completed.map((done) => (
+              <li key={done.key}>{done.text}</li>
             ))}
-            {replies > 0 && <li>{t("stoppedWork.replies", { count: replies })}</li>}
-            {calls > 0 && <li>{t("toolActivity", { count: calls })}</li>}
           </ul>
         )}
       </Part>
