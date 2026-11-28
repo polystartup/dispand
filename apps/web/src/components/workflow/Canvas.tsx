@@ -66,9 +66,6 @@ const icons = { button: MousePointerClick, chat: MessageCircle, schedule: Clock,
 /** Where a condition's Then and Else leave its card. */
 const BRANCHES = ["then", "else"] as const;
 const branchAt: Record<Branch, string> = { then: "25%", else: "75%" };
-/** A "+" under a node is pressed from its top down: just above it is the node's connection handle. */
-const underNode = "size-5 after:top-0 after:translate-y-0";
-
 const handle = "!size-2.5 !border-0 !bg-faint";
 
 function Card({ data }: NodeProps<Node<CardData>>) {
@@ -111,7 +108,7 @@ function Card({ data }: NodeProps<Node<CardData>>) {
               <AddStepMenu
                 onPick={(type) => data.onAdd(type, branch)}
                 label={t("canvas.addOnBranch", { name: title, branch: t(`canvas.${branch}`) })}
-                className={underNode}
+                className="size-5"
                 inLoop={data.inLoop}
               />
               <span className="text-[11px] font-medium text-muted">{t(`canvas.${branch}`)}</span>
@@ -124,7 +121,7 @@ function Card({ data }: NodeProps<Node<CardData>>) {
           <AddStepMenu
             onPick={(type) => data.onAdd(type)}
             label={t("canvas.addAfter", { name: title })}
-            className={cn("absolute top-full left-1/2 mt-1 -translate-x-1/2", underNode)}
+            className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2"
             inLoop={data.inLoop}
           />
         </>
@@ -149,16 +146,12 @@ function Group({ data }: NodeProps<Node<GroupData>>) {
       </div>
       {data.empty && (
         <div className="absolute inset-x-0 flex flex-col items-center gap-1" style={{ top: GROUP.header + 8 }}>
-          <AddStepMenu onPick={data.onAddInside} label={t("canvas.addInside", { name: data.name })} className={underNode} inLoop />
+          <AddStepMenu onPick={data.onAddInside} label={t("canvas.addInside", { name: data.name })} className="size-5" inLoop />
           <span className="text-[11px] text-muted">{t("canvas.repeatHere")}</span>
         </div>
       )}
       <Handle type="source" position={Position.Bottom} className={handle} />
-      <AddStepMenu
-        onPick={data.onAdd}
-        label={t("canvas.addAfter", { name: data.name })}
-        className={cn("absolute top-full left-1/2 mt-1 -translate-x-1/2", underNode)}
-      />
+      <AddStepMenu onPick={data.onAdd} label={t("canvas.addAfter", { name: data.name })} className="absolute top-full left-1/2 mt-1 size-5 -translate-x-1/2" />
     </div>
   );
 }
@@ -182,8 +175,7 @@ function Link({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPo
                 type="button"
                 onClick={data.onRemove}
                 aria-label={t("canvas.removeLink", { from: data.fromName, to: data.toName })}
-                // 44px to press, far enough from the add button that their targets don't overlap.
-                className="pointer-events-auto absolute left-full ml-6 grid size-5 place-items-center rounded-full bg-surface text-danger shadow-card ring-1 ring-line transition after:absolute after:-inset-3 hover:bg-hover"
+                className="pointer-events-auto absolute left-full ml-1 grid size-5 place-items-center rounded-full bg-surface text-danger shadow-card ring-1 ring-line transition hover:bg-hover"
               >
                 <X size={12} aria-hidden />
               </button>

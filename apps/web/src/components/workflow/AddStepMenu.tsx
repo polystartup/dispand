@@ -36,7 +36,7 @@ export function AddStepMenu({
           // React bubbles clicks through portals too: the card under it mustn't take them as a select.
           onClick={(e) => e.stopPropagation()}
           className={cn(
-            "nodrag nopan pointer-events-auto relative grid size-6 place-items-center rounded-full bg-surface text-accent shadow-card ring-1 ring-line transition after:absolute after:top-1/2 after:left-1/2 after:size-11 after:-translate-1/2 hover:bg-hover",
+            "nodrag nopan pointer-events-auto grid size-6 place-items-center rounded-full bg-surface text-accent shadow-card ring-1 ring-line transition hover:bg-hover",
             className,
           )}
         >

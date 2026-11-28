@@ -116,7 +116,7 @@ export function AttachmentEditor({
       {ids.length > 0 && (
         <ul className="flex flex-wrap gap-2" aria-label={t("files.list", { label })}>
           {ids.map((id) => (
-            <li key={id} className="relative flex items-center">
+            <li key={id} className="flex items-center">
               <FileItem id={id} file={files[id]} size="lg" />
               <button
                 type="button"
@@ -126,10 +126,10 @@ export function AttachmentEditor({
                   setError(null);
                   edit.mutate({ remove: id });
                 }}
-                // Small to look at, 44px to press: down and inwards, over its own file and never the next one.
-                className="absolute -right-2 -top-2 grid size-5 place-items-center rounded-full bg-surface text-muted shadow-card after:absolute after:top-0 after:right-0 after:size-11 hover:text-fg"
+                // Beside its file, never over it: pressing the file must not remove it.
+                className="grid size-11 place-items-center rounded-lg text-muted hover:bg-hover hover:text-fg"
               >
-                <X size={12} aria-hidden />
+                <X size={14} aria-hidden />
               </button>
             </li>
           ))}
