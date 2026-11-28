@@ -63,7 +63,9 @@ export default defineConfig({
   // and zzz-telemetry.spec.ts must stay last in their chain).
   workers: 1,
   // A failed test keeps its trace in test-results/: a flake leaves more than its call log.
-  use: { trace: "retain-on-failure" },
+  // E2E_BROWSER runs the specs in another of Playwright's browsers: the artifact frame's isolation
+  // is checked in "firefox" and "webkit" too (docs/security/browser.md).
+  use: { trace: "retain-on-failure", browserName: (process.env.E2E_BROWSER ?? "chromium") as "chromium" | "firefox" | "webkit" },
   // "main-1" to "main-4": the chains of specs that share one app and one owner, run in file order,
   // each on its own server and database so CI runs them in parallel. Each starts with its setup
   // (auth.setup.ts: the owner), then auth.spec.ts and settings.spec.ts, and ends with yz-audit.spec.ts
