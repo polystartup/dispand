@@ -3,6 +3,7 @@
 // No token, refresh token, sign-in link or provider code leaves this module: Codex's login is the
 // CLI's own (`dispand-runner sign-in codex`), Claude Code's a long-lived token from `claude
 // setup-token` kept here (`dispand-runner sign-in claude-code`), and the requests below return none.
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -11,6 +12,7 @@ import { join } from "node:path";
 import { RunnerToServer, type ServerToRunner, type SubscriptionStatus } from "@dispand/runner-protocol";
 import { CodexRpc } from "../codex/rpc.ts";
 import { writeDurable } from "../durable.ts";
+import type { Launch } from "../sandbox/worker.ts";
 
 export type Harness = SubscriptionStatus["harness"];
 type Enroll = Extract<RunnerToServer, { type: "subscription.enroll" }>;
@@ -87,9 +89,36 @@ export function identityDigest(userId: string, accountId: string): SubscriptionS
     .digest("hex")}`;
 }
 
+/**
+ * An app-server on the supervisor's Codex store: stopped at `timeoutMs`, and killed a second later
+ * if it ignored that, so its turn on the store (`Subscriptions.codexStore`) always ends. In a
+ * process group of its own, killed whole: the image's `codex` is npm's launcher, whose child is
+ * the app-server, and nothing it started may outlive the turn.
+ */
+export function storeServer(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<CodexRpc> {
+  const launch: Launch = (command, args, o) => {
+    const child = spawn(command, args, { cwd: o.cwd, env: o.env, stdio: ["pipe", "pipe", "pipe"], detached: true });
+    const killAll = () => {
+      try {
+        if (child.pid) process.kill(-child.pid, "SIGKILL");
+      } catch {
+        // The group is gone already.
+      }
+    };
+    const late = setTimeout(killAll, timeoutMs + 1000).unref();
+    // Before `CodexRpc` hears of the exit, and frees the store.
+    child.once("exit", () => {
+      clearTimeout(late);
+      killAll();
+    });
+    return child;
+  };
+  return CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs), launch);
+}
+
 /** The ChatGPT user and account Codex is signed in as, as a digest; undefined when it isn't signed in to ChatGPT. */
 async function codexIdentity(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<string | undefined> {
-  const rpc = await CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs));
+  const rpc = await storeServer(codexPath, env, timeoutMs);
   try {
     const { account } = await rpc.request("account/read", { refreshToken: false });
     if (account?.type !== "chatgpt") return undefined;
@@ -103,7 +132,7 @@ async function codexIdentity(codexPath: string, env: NodeJS.ProcessEnv, timeoutM
 
 /** Codex's managed renewal in its own store: the reply says who is signed in, never with a token. */
 async function codexRenew(codexPath: string, env: NodeJS.ProcessEnv, timeoutMs: number): Promise<void> {
-  const rpc = await CodexRpc.spawn(codexPath, env, tmpdir(), AbortSignal.timeout(timeoutMs));
+  const rpc = await storeServer(codexPath, env, timeoutMs);
   try {
     const { account } = await rpc.request("account/read", { refreshToken: true });
     if (account?.type !== "chatgpt") throw new Error("not signed in to ChatGPT");
@@ -162,7 +191,7 @@ export class Subscriptions {
    * Runs `use`, which opens an app-server on the Codex login store, alone: after every earlier
    * one, the status's reads, the renewal and each credential source's reads included. Codex may
    * renew a token on a read too, and a refresh token used twice ends the login. Each holds the
-   * store until its app-server has exited; only the status stops waiting (`status`).
+   * store until its app-server has exited, which `storeServer` bounds.
    */
   codexStore<T>(use: () => Promise<T>): Promise<T> {
     const turn = this.store.then(use);
@@ -206,12 +235,7 @@ export class Subscriptions {
     const out: SubscriptionStatus[] = [];
     const codex = this.codex;
     if (codex && (await this.stamp()) !== "none") {
-      // A hard deadline, its wait for the store included: an app-server that ignores its stop must not hold up the runner's hello.
-      let timer: NodeJS.Timeout | undefined;
-      const late = new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), codex.timeoutMs + 1000)));
-      const identity = await Promise.race([this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).catch(() => undefined), late]).finally(
-        () => clearTimeout(timer),
-      );
+      const identity = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).catch(() => undefined);
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);

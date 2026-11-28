@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, test, vi } from "vitest";
@@ -138,6 +138,29 @@ test("an enrollment is confirmed only for a CLI signed in here, with a challenge
   expect(readEnrollment(configDir, "codex")).toEqual({ enrollmentId: "enr_1", identity: identityDigest("user-1", "acct-1") });
   expect(await subs.enroll("codex", "c".repeat(32), () => false)).toMatchObject({ ok: false });
   expect(readEnrollment(configDir, "codex")?.enrollmentId).toBe("enr_1");
+});
+
+test.each([
+  ["itself", false],
+  ["through a launcher", true],
+])("an app-server that ignores its stop, run %s, is killed, and the store serves the next reader", async (_, launcher) => {
+  const { configDir, codex } = await setup();
+  const pidFile = join(configDir, "app-server.pid");
+  // A launcher as npm's `codex` is: the app-server is its child, and it dies at the stop without it.
+  const path = join(configDir, "launcher");
+  await writeFile(path, `#!/bin/sh\n"${codex.path}" "$@"\n`);
+  await chmod(path, 0o755);
+  const stuck = new Subscriptions({
+    configDir,
+    codexPath: () => (launcher ? path : codex.path),
+    env: { ...codex.env, FAKE_CODEX_HANG_ON: "account/read", FAKE_CODEX_IGNORE_TERM: "1", FAKE_CODEX_PID: pidFile },
+    timeoutMs: 300,
+  });
+  expect(await stuck.status()).toEqual([]);
+  // Nothing it started is left on the store, and the next turn on it runs.
+  const pid = Number(await readFile(pidFile, "utf8"));
+  await vi.waitFor(() => expect(() => process.kill(pid, 0)).toThrow(), { timeout: 5000 });
+  expect(await stuck.codexStore(async () => "next")).toBe("next");
 });
 
 test("concurrent renewals result in one provider call", async () => {

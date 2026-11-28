@@ -3,9 +3,7 @@
 // the access token and account header are read here, from the supervisor's own login store, at
 // each use, and kept in memory only. Renewal goes through the supervisor's one serialized renewal
 // (`Subscriptions.renew`): refresh tokens rotate, so no other copy of the login may ever renew it.
-import { tmpdir } from "node:os";
-import { identityDigest, subscriptionEnv, type Subscriptions } from "../subscriptions/supervisor.ts";
-import { CodexRpc } from "./rpc.ts";
+import { identityDigest, storeServer, subscriptionEnv, type Subscriptions } from "../subscriptions/supervisor.ts";
 
 /** The headers the relay sets on a model request it forwards to the provider: never logged, never sent to a worker. */
 export type CodexCredential = { authorization: string; "chatgpt-account-id": string };
@@ -92,7 +90,7 @@ export class CodexSubscription {
     const timeoutMs = this.o.timeoutMs ?? 15_000;
     const read = await this.o.subscriptions
       .codexStore(async () => {
-        const rpc = await CodexRpc.spawn(path, subscriptionEnv(this.o.configDir, "codex", this.o.env), tmpdir(), AbortSignal.timeout(timeoutMs));
+        const rpc = await storeServer(path, subscriptionEnv(this.o.configDir, "codex", this.o.env), timeoutMs);
         try {
           const auth = await rpc.request("getAuthStatus", { includeToken: true, refreshToken: false });
           const { activeSessionId, sessions } = await rpc.request("accountSession/list", {});

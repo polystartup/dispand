@@ -19,6 +19,7 @@
 // - FAKE_CODEX_PID: a file `app-server` writes its pid to.
 // - FAKE_CODEX_RUNS: a file each `app-server` appends "+" to when it starts and "-" when it exits.
 // - FAKE_CODEX_INIT_DELAY: milliseconds `initialize` waits before its reply.
+// - FAKE_CODEX_IGNORE_TERM: when set, `app-server` ignores SIGTERM and stays up once its stdin closes.
 // - FAKE_CODEX_ENV_LOG: a file `app-server` writes its `DISPAND_*` variables to, as JSON.
 // - FAKE_CODEX_BATCH: when set, what it sends in one tick goes out in one write.
 // - FAKE_CODEX_TURN_START_DELAY: milliseconds `turn/start` waits before its reply and `turn/started`.
@@ -43,6 +44,10 @@ if (process.argv[2] === "--version") {
 }
 
 if (env.FAKE_CODEX_PID) writeFileSync(env.FAKE_CODEX_PID, String(process.pid));
+if (env.FAKE_CODEX_IGNORE_TERM) {
+  process.on("SIGTERM", () => {});
+  setInterval(() => {}, 1000);
+}
 if (env.FAKE_CODEX_RUNS) {
   const runs = env.FAKE_CODEX_RUNS;
   appendFileSync(runs, "+");
