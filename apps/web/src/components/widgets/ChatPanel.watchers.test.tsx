@@ -109,9 +109,9 @@ test("another visible widget keeps the shared run watcher until it also leaves",
   await waitFor(() => expect(fake.runs.stream).toHaveBeenCalledOnce());
   const signal = fake.runs.stream.mock.calls[0]![1]!.signal as AbortSignal;
   show([{ surfaceKey: "right", runId: "run_1" }]);
-  expect(signal!.aborted).toBe(false);
+  expect(signal.aborted).toBe(false);
   show([]);
-  await waitFor(() => expect(signal!.aborted).toBe(true));
+  await waitFor(() => expect(signal.aborted).toBe(true));
 });
 
 test("reactivation waits for a current run snapshot before sending a retained draft", async () => {

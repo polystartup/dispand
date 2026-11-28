@@ -250,10 +250,10 @@ function codexInput(ctx: {
     drop() {
       waiting.length = 0;
     },
-    send(text: string) {
+    send: (text: string) => {
       if (admit(text)) say(text);
     },
-    steer(target: string, text: string): Promise<"steered" | "queued"> {
+    steer: (target: string, text: string): Promise<"steered" | "queued"> => {
       if (!admit(text)) return Promise.resolve("queued");
       const codex = state.rpc;
       if (!state.running || target !== state.turnId || !codex || !state.threadId) {
@@ -517,7 +517,7 @@ function codexNotifications(ctx: {
   }
 
   return {
-    receive(n: ServerNotification) {
+    receive: (n: ServerNotification) => {
       // A throw here would escape the app-server's stdout listener and end the runner with every
       // session on it. A notification this session can't follow (a Codex whose shapes differ) ends it.
       try {
