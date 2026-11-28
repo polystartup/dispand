@@ -91,7 +91,7 @@ function Shell() {
 
           <aside
             aria-label={t("sidebar")}
-            className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-sidebar backdrop-blur-2xl backdrop-saturate-150 md:block"
+            className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-surface md:block"
           >
             <Sidebar user={user} onNavigate={() => {}} />
           </aside>
@@ -99,7 +99,7 @@ function Shell() {
           <SheetContent
             side="left"
             showCloseButton={false}
-            className="w-64 max-w-[85vw] gap-0 border-0 bg-sidebar p-0 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
+            className="w-64 max-w-[85vw] gap-0 border-0 p-0 md:hidden"
           >
             <SheetTitle className="sr-only">{t("menu")}</SheetTitle>
             <SheetDescription className="sr-only">{t("navigation")}</SheetDescription>
