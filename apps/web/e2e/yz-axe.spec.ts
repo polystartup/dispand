@@ -4,6 +4,8 @@ import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { pathToFileURL } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
+import { startFakeMcp, type FakeMcp } from "../../../packages/domain/src/tools/test-server.ts";
+import { FakeRunner } from "./fake-runner.ts";
 import { rpc, stem, writer } from "./fixtures.ts";
 import { hydrated } from "./hydrated.ts";
 
@@ -45,7 +47,10 @@ async function accessible(
 /** What is showing is scanned again until what it loads has landed. */
 const scanned = (page: Page, known: string[] = []) => expect.poll(() => violations(page, known), { timeout: 15_000 }).toEqual([]);
 
-/** A local Git repository holding the law-firm plugin and, in another, a marketplace listing it (the dev server takes file:// URLs for e2e only). */
+/**
+ * A local Git repository holding the law-firm plugin and, in another, a marketplace listing it (the dev server
+ * takes file:// URLs for e2e only), and `update`, a new commit of the plugin that rewords a skill file.
+ */
 function lawFirmMarketplace(dir: string) {
   const env = {
     ...process.env,
@@ -75,13 +80,41 @@ function lawFirmMarketplace(dir: string) {
       .map((d) => [relative(root, join(d.parentPath, d.name)), readFileSync(join(d.parentPath, d.name), "utf8")]),
   );
   const plugin = repo(join(dir, "plugin"), files);
-  return repo(join(dir, "market"), {
+  const url = repo(join(dir, "market"), {
     ".claude-plugin/marketplace.json": JSON.stringify({ name: "axe-firms", plugins: [{ name: "law-firm", source: { source: "url", url: plugin } }] }),
   });
+  const update = () => {
+    const skill = "skills/legal-research/SKILL.md";
+    writeFileSync(join(dir, "plugin", skill), `${files[skill]!}\nRecord each decision's holding.\n`);
+    for (const args of [
+      ["add", skill],
+      ["commit", "-q", "-m", "update"],
+    ])
+      execFileSync("git", args, { cwd: join(dir, "plugin"), env });
+  };
+  return { url, update };
 }
 
+let runner: FakeRunner | undefined;
+let mcp: FakeMcp | undefined;
+test.afterAll(async () => {
+  runner?.close();
+  await mcp?.close();
+});
+
 /** What the pages show, made once for the run, by the first test that needs it. */
-let made: Promise<{ agentId: string; tableId: string; workflowId: string; name: string; harnessName: string; skillName: string }> | undefined;
+let made:
+  | Promise<{
+      agentId: string;
+      tableId: string;
+      workflowId: string;
+      name: string;
+      harnessName: string;
+      skillName: string;
+      runnerName: string;
+      toolName: string;
+    }>
+  | undefined;
 function seed(page: Page) {
   made ??= (async () => {
     // A name of its own: a worker started after a failed test seeds again, on the same app.
@@ -105,6 +138,14 @@ function seed(page: Page) {
       instructions: "# Axe\n\nAnswer AXE.",
       requiredToolIds: [],
     });
+    // A runner online (paired by a fake one, which needs a page on the app) and a tool whose actions are listed.
+    const runnerName = `${name} runner`;
+    await page.goto("/help");
+    const { pairingCode } = await rpc<{ pairingCode: string }>(page, "runners/create", { name: runnerName });
+    runner = await FakeRunner.pair(page, pairingCode);
+    mcp = await startFakeMcp([{ name: "search_cases", description: "Search the cases", annotations: { readOnlyHint: true } }]);
+    const toolName = `${name} tool`;
+    await rpc(page, "tools/add", { name: toolName, url: mcp.url, transport: "streamable-http" });
     const table = await rpc<{ id: string; fields: { id: string }[] }>(page, "tables/create", { name });
     const link = await rpc<{ id: string }>(page, "fields/create", { tableId: table.id, name: "Repository URL", type: "url" });
     await rpc(page, "rows/create", { tableId: table.id, values: { [table.fields[0]!.id]: "A row", [link.id]: "https://example.com/repository" } });
@@ -120,7 +161,7 @@ function seed(page: Page) {
     });
     const home = await rpc<{ id: string }>(page, "pages/home");
     await rpc(page, "widgets/create", { pageId: home.id, type: "workflow-form", workflowId: workflow.id });
-    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName, skillName };
+    return { agentId: agent.id, tableId: table.id, workflowId: workflow.id, name, harnessName, skillName, runnerName, toolName };
   })();
   return made;
 }
@@ -315,6 +356,74 @@ for (const scheme of ["light", "dark"] as const) {
         },
       },
       {
+        name: "a runner's sheet",
+        route: () => "/settings/harnesses/runners",
+        open: async (page, { runnerName }) => {
+          await page.getByRole("button", { name: new RegExp(runnerName) }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the new MCP server sheet",
+        route: () => "/settings/tools",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Add MCP server" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "an MCP server's sheet",
+        route: () => "/settings/tools",
+        open: async (page, { toolName }) => {
+          await page.getByRole("button", { name: new RegExp(`^${toolName}`) }).click();
+          await expect(
+            dialog(page)
+              .getByRole("region", { name: /^Actions/ })
+              .getByText("search_cases"),
+          ).toBeVisible();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the new runner tool sheet",
+        route: () => "/settings/tools",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Add runner tool" }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the tool catalog",
+        route: () => "/settings/tools",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Browse catalog" }).click();
+          await expect(dialog(page).getByRole("button", { name: /^GitHub/ })).toBeVisible();
+          return dialog(page);
+        },
+      },
+      {
+        name: "a catalog tool's form",
+        route: () => "/settings/tools",
+        open: async (page) => {
+          await page.getByRole("button", { name: "Browse catalog" }).click();
+          await dialog(page)
+            .getByRole("button", { name: /^GitHub/ })
+            .click();
+          await expect(dialog(page).getByLabel("Personal access token")).toBeVisible();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to delete a workflow",
+        route: ({ workflowId }) => `/settings/workflows/${workflowId}`,
+        ready: (page) => page.getByLabel("Workflow name"),
+        open: async (page) => {
+          await page.getByRole("button", { name: "Workflow menu" }).click();
+          await page.getByRole("menuitem", { name: "Delete workflow" }).click();
+          return dialog(page);
+        },
+      },
+      {
         name: "the profile dialog",
         route: () => "/help",
         open: async (page) => {
@@ -332,10 +441,11 @@ for (const scheme of ["light", "dark"] as const) {
       });
     }
 
-    test("the plugin's install, set up, skill files and remove sheets have none", async ({ page }) => {
+    test("the plugin's install, set up, skill files, update and remove sheets have none", async ({ page }) => {
       test.setTimeout(120_000);
       await seed(page);
-      const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: lawFirmMarketplace(test.info().outputPath("market")) });
+      const firms = lawFirmMarketplace(test.info().outputPath("market"));
+      const market = await rpc<{ id: string }>(page, "marketplaces/add", { url: firms.url });
       try {
         await page.goto("/settings/plugins");
         await hydrated(page);
@@ -360,6 +470,11 @@ for (const scheme of ["light", "dark"] as const) {
         await page.keyboard.press("Escape");
 
         await page.goto("/settings/plugins/installed");
+        firms.update();
+        await page.getByRole("button", { name: "Update law-firm" }).click();
+        await expect(sheet.getByRole("heading", { name: "Update law-firm" })).toBeVisible();
+        await scanned(page);
+        await page.keyboard.press("Escape");
         await page.getByRole("button", { name: "Set up law-firm" }).click();
         await expect(sheet.getByRole("heading", { name: "Set up law-firm" })).toBeVisible();
         await scanned(page);
