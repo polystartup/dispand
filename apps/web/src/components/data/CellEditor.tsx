@@ -133,7 +133,7 @@ function TextEditor({ field, value, onCommit, onCancel, inline, initialText }: P
       )}
       {long && <p className="mt-1 text-[12px] text-faint">{t("cell.save")}</p>}
       {problem && (
-        <p role="alert" className="mt-1 rounded-md bg-surface px-2 py-1 text-[12px] text-danger shadow-card">
+        <p role="alert" className="mt-1 rounded-md bg-surface px-2 py-1 text-[12px] text-danger shadow-pop">
           {problem}
         </p>
       )}
@@ -161,7 +161,7 @@ function SelectEditor({ field, value, onCommit, onCancel, inline }: Props) {
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- Escape from any option closes the inline editor
     <div
-      className={cn("rounded-xl bg-surface p-1", inline ? "absolute left-0 top-0 z-20 min-w-48 shadow-card" : "border border-line")}
+      className={cn("rounded-xl bg-surface p-1", inline ? "absolute left-0 top-0 z-20 min-w-48 shadow-pop" : "border border-line")}
       onKeyDown={(e) => {
         if (e.key === "Escape" && inline) {
           e.stopPropagation();

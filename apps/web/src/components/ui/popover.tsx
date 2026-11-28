@@ -13,7 +13,7 @@ function PopoverContent({ className, align = "start", sideOffset = 6, ...props }
         align={align}
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-72 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface p-4 shadow-card outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0",
+          "z-50 w-72 max-w-[calc(100vw-2rem)] rounded-2xl bg-surface p-4 shadow-pop outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0",
           className,
         )}
         {...props}

@@ -18,8 +18,8 @@
   --accent-fg: #ffffff;
   --danger: #d70015;
   --success: #1d7d34;
-  --sidebar: rgba(246, 246, 248, 0.72);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.06);
+  /* Surfaces are flat: a card is edged by a hairline. Only what floats (`--shadow-pop`) casts a shadow. */
+  --shadow: 0 0 0 1px var(--line);
   --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 12px 40px rgba(0, 0, 0, 0.16);
   --font: "Hanken Grotesk", system-ui, -apple-system, "Segoe UI", sans-serif;
 }
@@ -43,8 +43,6 @@
     --accent-fg: #172744;
     --danger: #ff453a;
     --success: #30d158;
-    --sidebar: rgba(34, 34, 38, 0.72);
-    --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
     --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.6);
   }
 }
@@ -67,8 +65,6 @@
   --accent-fg: #172744;
   --danger: #ff453a;
   --success: #30d158;
-  --sidebar: rgba(34, 34, 38, 0.72);
-  --shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 8px 24px rgba(0, 0, 0, 0.35);
   --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.6);
 }
 
@@ -86,7 +82,6 @@
   --color-accent-fg: var(--accent-fg);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --color-sidebar: var(--sidebar);
   /* names the shadcn/ui components use */
   --color-background: var(--bg);
   --color-foreground: var(--fg);

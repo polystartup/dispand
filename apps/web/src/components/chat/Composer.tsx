@@ -62,7 +62,7 @@ export function ChatComposer({ runId, assistantAgentId, tools, open, waiting, bu
       {queued}
       <ComposerPrimitive.AttachmentDropzone asChild disabled={!open || waiting === "question" || busy}>
         <ComposerPrimitive.Root
-          className={`mx-auto flex w-full max-w-3xl flex-wrap items-end rounded-2xl border border-line bg-surface focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "gap-2 p-3 shadow-sm" : "gap-1 p-2"}`}
+          className={`mx-auto flex w-full max-w-3xl flex-wrap items-end rounded-2xl border border-line bg-surface focus-within:border-accent data-[dragging=true]:border-accent data-[dragging=true]:bg-hover ${tools ? "gap-2 p-3" : "gap-1 p-2"}`}
           onSubmit={(e) => {
             if (running) {
               e.preventDefault();

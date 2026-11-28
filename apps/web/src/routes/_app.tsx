@@ -89,18 +89,11 @@ function Shell() {
             <span className="text-xl font-semibold tracking-[-0.03em] lowercase">Dispand</span>
           </header>
 
-          <aside
-            aria-label={t("sidebar")}
-            className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-sidebar backdrop-blur-2xl backdrop-saturate-150 md:block"
-          >
+          <aside aria-label={t("sidebar")} className="fixed inset-y-0 left-0 z-40 hidden w-64 border-r border-line bg-surface md:block">
             <Sidebar user={user} onNavigate={() => {}} />
           </aside>
 
-          <SheetContent
-            side="left"
-            showCloseButton={false}
-            className="w-64 max-w-[85vw] gap-0 border-0 bg-sidebar p-0 backdrop-blur-2xl backdrop-saturate-150 md:hidden"
-          >
+          <SheetContent side="left" showCloseButton={false} className="w-64 max-w-[85vw] gap-0 border-0 p-0 md:hidden">
             <SheetTitle className="sr-only">{t("menu")}</SheetTitle>
             <SheetDescription className="sr-only">{t("navigation")}</SheetDescription>
             <Sidebar user={user} onNavigate={() => setOpen(false)} />

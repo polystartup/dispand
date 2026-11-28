@@ -6,7 +6,7 @@ export function AuthCard({ title, subtitle, children }: { title: string; subtitl
     <main className="grid min-h-dvh place-items-center px-4 py-10">
       <div className="w-full max-w-[380px] animate-[pop_0.3s_ease-out]">
         <div className="mb-8 flex flex-col items-center text-center">
-          <span className="mb-5 grid size-14 place-items-center rounded-2xl bg-accent text-accent-foreground shadow-card" aria-hidden>
+          <span className="mb-5 grid size-14 place-items-center rounded-2xl bg-accent text-accent-foreground" aria-hidden>
             <Workflow size={28} />
           </span>
           <h1 className="text-[26px] font-semibold tracking-tight">{title}</h1>
