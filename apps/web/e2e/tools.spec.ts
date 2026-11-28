@@ -127,7 +127,7 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
 
   await writer(page);
   await page.goto("/settings/agents");
-  await page.getByRole("link", { name: /Writer/ }).click();
+  await page.getByRole("link", { name: /^Writer / }).click();
   await page.getByRole("checkbox", { name: /take-notes/ }).check();
   const tools = page.getByRole("region", { name: "Tools" });
   await expect(tools.getByRole("listitem").filter({ hasText: "Notes" })).toContainText("from skill take-notes");
@@ -183,7 +183,7 @@ test("an agent gets a skill with its tool locked, and another tool; neither tool
 
   // Back as it was for the specs that follow.
   await page.goto("/settings/agents");
-  await page.getByRole("link", { name: /Writer/ }).click();
+  await page.getByRole("link", { name: /^Writer / }).click();
   await page.getByRole("checkbox", { name: /take-notes/ }).uncheck();
   await page.getByRole("button", { name: "Remove Search" }).click();
   await page.getByRole("button", { name: "Save" }).click();
