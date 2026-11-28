@@ -221,3 +221,5 @@ try {
   await cleanUp();
 }
 console.log(`results: ${join(outDir, "results.json")}${args["cpu-prof"] ? `; CPU profile in ${appDir} (pnpm bench:load:profile <file>)` : ""}`);
+// Done: the streams to a kept app (`--keep`) stay open though aborted, and would keep this running.
+process.exit(0);
