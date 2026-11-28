@@ -38,6 +38,54 @@ export const lastMessage = {
   latestPart: sql<string | null>`(select max(p."id")::text from "message_parts" p where p."message_id" = "messages"."id")`,
 };
 
+/** What an engine keeps of a step streaming there: its message's whole text, and the latest part the engine added to it. */
+export type StreamedCopy = { messageId: string; text: string; part: string };
+
+// A model's reply runs to about 0.5 Mi code units (128k tokens): a text over 4 Mi is no real reply,
+// and 32 Mi in all still holds eight of those, or hundreds of usual ones.
+export const STREAMED_COPY_LIMIT = 4 * 1024 * 1024;
+export const STREAMED_BUDGET = 32 * 1024 * 1024;
+const STREAMED_COPIES = 256;
+
+/**
+ * An engine's copies of its steps' streaming text (`Engine.streamed`), at most 256 of them and
+ * `STREAMED_BUDGET` code units in all: the most recently streamed last, the oldest dropped first. A
+ * text over `STREAMED_COPY_LIMIT` isn't kept. A copy gone or never kept is read again (`wholeText`).
+ */
+export class StreamedCopies {
+  private readonly copies = new Map<string, StreamedCopy>();
+  private held = 0;
+
+  /** Code units in all the copies kept. */
+  get length(): number {
+    return this.held;
+  }
+
+  get size(): number {
+    return this.copies.size;
+  }
+
+  get(stepId: string): StreamedCopy | undefined {
+    return this.copies.get(stepId);
+  }
+
+  delete(stepId: string): void {
+    const copy = this.copies.get(stepId);
+    if (!copy) return;
+    this.copies.delete(stepId);
+    this.held -= copy.text.length;
+  }
+
+  set(stepId: string, copy: StreamedCopy): void {
+    this.delete(stepId);
+    if (copy.text.length > STREAMED_COPY_LIMIT) return;
+    this.copies.set(stepId, copy);
+    this.held += copy.text.length;
+    // The newest copy is under the budget alone, so it is never the one dropped.
+    while (this.copies.size > STREAMED_COPIES || this.held > STREAMED_BUDGET) this.delete(this.copies.keys().next().value!);
+  }
+}
+
 /** The message's whole text, as `messageText` reads it. */
 export async function wholeText(tx: Tx, messageId: string): Promise<string> {
   const [row] = await tx.select({ text: messageText }).from(messages).where(eq(messages.id, messageId));

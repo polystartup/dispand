@@ -6,7 +6,7 @@ import { messageParts, messages, stepRuns } from "../db/schema.ts";
 import { router } from "../rpc/router.ts";
 import { ownerContext, runnerWithClis } from "../runners/test-support.ts";
 import { Engine } from "./engine.ts";
-import { foldParts, MAX_MESSAGE_TEXT } from "./message-parts.ts";
+import { foldParts, MAX_MESSAGE_TEXT, STREAMED_BUDGET, STREAMED_COPY_LIMIT, type StreamedCopies } from "./message-parts.ts";
 import { FakeAdapter } from "./test-support.ts";
 import type { RunEvent } from "./views.ts";
 
@@ -179,4 +179,88 @@ test("a message stops growing at its bound: once there, its later deltas are dro
   await c.emit({ type: "turn-end", turnId: "first" });
   const [row] = await c.stored();
   expect(row!.text === `${start}123456789012345`).toBe(true);
+});
+
+/** `n` chat Jobs on one engine, their harness's limit raised to hold them all, each with its first turn started. */
+async function chatsOnOneEngine(n: number) {
+  const context = await ownerContext();
+  const { runnerId } = await runnerWithClis(context, "Runner");
+  const harness = await call(router.harnesses.create, { name: "Claude", runnerId, kind: "claude-code", permissionMode: "default" }, { context });
+  await call(router.harnesses.setLimit, { id: harness.id, maxWorking: n }, { context });
+  const agent = await call(router.agents.create, { name: "Assistant", harnessId: harness.id, systemPrompt: "" }, { context });
+  const engine = new Engine(context.db, new FakeAdapter(), undefined, undefined, undefined, context.secrets);
+  onTestFinished(() => engine.stop());
+  const config = { kind: "manual" as const, placement: "chat" as const };
+  const trigger = await call(router.triggers.create, { agentId: agent.id, name: "Chat", instructions: "Help.", config }, { context });
+  const streamed = (engine as unknown as { streamed: StreamedCopies }).streamed;
+  let seq = 0;
+  const chats = [];
+  for (let i = 0; i < n; i++) {
+    const runId = await engine.startJob(trigger.id, context.ownerId);
+    const step = async () =>
+      (
+        await context.db
+          .select()
+          .from(stepRuns)
+          .where(and(eq(stepRuns.runId, runId), isNotNull(stepRuns.sessionId)))
+      )[0]!;
+    await vi.waitFor(async () => expect((await step()).startDeliveredAt).toBeTruthy());
+    const { sessionId, id: stepId } = await step();
+    const emit = (event: HarnessEvent) => engine.onHarnessEvent(sessionId!, event, { runnerId, seq: ++seq });
+    await emit({ type: "turn-start", turnId: "first", interruptible: false });
+    let shown: string | undefined;
+    onTestFinished(
+      engine.events.subscribe(runId, (e) => {
+        if (e.type === "message") shown = e.message.text;
+      }),
+    );
+    // What the message holds so far, by what this test sent: every live event must carry all of it.
+    let whole = "";
+    const say = async (delta: string, newMessage = false) => {
+      await emit({ type: "text", delta, ...(newMessage ? { newMessage: true as const } : {}) });
+      whole = newMessage ? delta : whole + delta;
+      expect(shown === whole).toBe(true);
+    };
+    chats.push({ runId, stepId, emit, say, whole: () => whole });
+  }
+  return { context, streamed, chats };
+}
+
+test("an engine keeps at most its budget of streaming text: the oldest copies go, a text over the per-copy limit is never kept, and every event and read stays whole", async () => {
+  // Each answer just under the per-copy limit: the budget holds `kept` of them, and the rest stream past it.
+  const kept = Math.floor(STREAMED_BUDGET / STREAMED_COPY_LIMIT);
+  const { context, streamed, chats } = await chatsOnOneEngine(kept + 3);
+  const long = "x".repeat(STREAMED_COPY_LIMIT - 64);
+  for (const [i, chat] of chats.slice(0, -1).entries()) {
+    await chat.say(`Answer ${i}: ${long}`, true);
+    await chat.say(` and ${i}.`);
+    expect(streamed.length).toBeLessThanOrEqual(STREAMED_BUDGET);
+  }
+  // The most recent stay, the oldest went first.
+  expect(chats.map((c) => streamed.get(c.stepId) !== undefined)).toEqual([false, false, ...Array<boolean>(kept).fill(true), false]);
+  // A dropped copy is read again: its next event and its reads carry the whole text.
+  await chats[0]!.say(" Read again.");
+  expect(streamed.get(chats[0]!.stepId)).toBeDefined();
+  const run = await call(router.runs.get, { runId: chats[1]!.runId }, { context });
+  expect(run.messages.find((m) => m.role === "assistant")?.text === chats[1]!.whole()).toBe(true);
+  // A copy that grows past the per-copy limit goes, and the text is never kept again: each of its events reads it, whole.
+  const over = chats.at(-1)!;
+  // 10 code units under the limit, then 4 (kept), then 16 over it.
+  await over.say(`Over: ${"y".repeat(STREAMED_COPY_LIMIT - 16)}`, true);
+  await over.say(" Kept.");
+  const held = streamed.get(over.stepId)!.text.length;
+  const before = streamed.length;
+  await over.say(" Past the limit now.");
+  expect(streamed.get(over.stepId)).toBeUndefined();
+  expect(streamed.length).toBe(before - held);
+  await over.say(" Still whole.");
+  expect(streamed.get(over.stepId)).toBeUndefined();
+  const reading = await call(router.runs.get, { runId: over.runId }, { context });
+  expect(reading.messages.find((m) => m.role === "assistant")?.text === over.whole()).toBe(true);
+  // Each turn's end drops its copy: none left, and nothing counted for them.
+  for (const chat of chats) await chat.emit({ type: "turn-end", turnId: "first" });
+  expect([streamed.size, streamed.length]).toEqual([0, 0]);
+  const stored = await context.db.select().from(messages).where(eq(messages.role, "assistant"));
+  const byRun = new Map(stored.map((m) => [m.runId, m.text]));
+  expect(chats.every((c) => byRun.get(c.runId) === c.whole())).toBe(true);
 });
