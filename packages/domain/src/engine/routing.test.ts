@@ -13,6 +13,7 @@ import { firstHop, HOP_MS, NOBODY_TEXT, REFUSED_TEXT } from "./routing.ts";
 import { escalationScopes } from "./discovery.ts";
 import { NOT_LISTED } from "./consults.ts";
 import { ensureAssistant } from "../agents/builtin.ts";
+import { consultRights } from "../agents/consults.ts";
 
 const choice = (to?: string): QuestionPayload => ({
   kind: "choice",
@@ -298,6 +299,9 @@ describe("routing", () => {
         ensureAssistant(s.context.db, "user_bob", s.agent.harnessId, s.context.workspaceId),
       );
       await s.context.db.update(agents).set({ consultMode: "auto", escalateMode: "auto" }).where(eq(agents.id, agentId));
+      // Any other Job of that Stem could consult the Clerk (with the Stem's bundles, it passes the pairing rule).
+      await s.set({ bundles: ["configure"] });
+      expect((await consultRights(s.context.db, agentId)).map((a) => a.id)).toContain(s.agent.id);
       // A plugin update's conflicts handed to Bob's Stem.
       const runId = await s.context.db.transaction((tx) =>
         s.engine.createJob(tx, {
@@ -309,7 +313,10 @@ describe("routing", () => {
       );
       await s.engine.continueRun(runId);
       const step = await vi.waitFor(async () => {
-        const [row] = await s.context.db.select().from(stepRuns).where(eq(stepRuns.runId, runId));
+        const [row] = await s.context.db
+          .select()
+          .from(stepRuns)
+          .where(and(eq(stepRuns.runId, runId), eq(stepRuns.nodeId, JOB_STEP)));
         if (!row?.sessionId) throw new Error("not started");
         return row;
       });
