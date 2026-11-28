@@ -237,19 +237,23 @@ export class Subscriptions {
    * The statuses for `hello` and `clis.replied`, read now. A Codex read that fails (an error, a
    * timeout) is never a sign-out, which would end its enrollment: it reports the last identity read
    * from the same login file, or nothing when there is none (after a start, or a new login).
+   * `fresh`: only what this read got, for an enrollment, which binds who is signed in now.
    */
-  async status(): Promise<SubscriptionStatus[]> {
+  async status(fresh = false): Promise<SubscriptionStatus[]> {
     const out: SubscriptionStatus[] = [];
     const codex = this.codex;
-    if (codex && (await this.stamp()) !== "none") {
+    const before = await this.stamp();
+    if (codex && before !== "none") {
       const read = await this.codexStore(() => codexIdentity(codex.path, codex.env, codex.timeoutMs)).then(
         (identity) => ({ identity }),
         () => undefined,
       );
       const stamp = await this.stamp();
-      // Signed out is what a read says; a failed one keeps the last word on this login file.
-      if (read) this.lastCodex = read.identity ? { stamp, identity: read.identity } : undefined;
-      const identity = read ? read.identity : this.lastCodex?.stamp === stamp ? this.lastCodex.identity : undefined;
+      // Signed out is what a read says; a failed one keeps the last word on this login file. A
+      // read the login changed under is reported, never kept.
+      if (read) this.lastCodex = read.identity && stamp === before ? { stamp, identity: read.identity } : undefined;
+      const kept = !fresh && this.lastCodex?.stamp === stamp ? this.lastCodex.identity : undefined;
+      const identity = read ? read.identity : kept;
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);
@@ -311,7 +315,7 @@ export class Subscriptions {
     if (harness !== "codex" && harness !== "claude-code") return { ok: false, message: "only Codex and Claude Code subscriptions can be enrolled" };
     const which: Harness = harness;
     const name = NAMES[which];
-    const status = (await this.status()).find((s) => s.harness === harness);
+    const status = (await this.status(true)).find((s) => s.harness === harness);
     if (!status) return { ok: false, message: `${name} isn't signed in to a subscription here: run \`dispand-runner sign-in ${harness}\` first` };
     if (status.signInNeeded) return { ok: false, message: `this ${name} sign-in can no longer serve: run \`dispand-runner sign-in ${harness}\` again first` };
     const askId = randomUUID();

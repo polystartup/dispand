@@ -85,11 +85,12 @@ describe("a Codex status read that fails", () => {
 
   test("after a good one reports the last identity, which keeps the enrollment", async () => {
     const { subs, codex } = await setup();
+    const env: NodeJS.ProcessEnv = codex.env;
     expect(await subs.status()).toEqual(reported);
-    failing(codex.env);
+    failing(env);
     expect(await subs.status()).toEqual(reported);
     // Read again once Codex answers.
-    delete codex.env.FAKE_CODEX_EXIT_ON;
+    delete env.FAKE_CODEX_EXIT_ON;
     expect(await subs.status()).toEqual(reported);
   });
 
@@ -101,11 +102,12 @@ describe("a Codex status read that fails", () => {
 
   test("is never a sign-out, and a real one is still reported", async () => {
     const { subs, codex } = await setup();
+    const env: NodeJS.ProcessEnv = codex.env;
     expect(await subs.status()).toEqual(reported);
-    codex.env.FAKE_CODEX_ACCOUNT = JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null });
+    env.FAKE_CODEX_ACCOUNT = JSON.stringify({ account: null, requiresOpenaiAuth: true, workspaceRouting: null });
     expect(await subs.status()).toEqual([]);
     // Signed out was read: a later failure doesn't bring the old identity back.
-    failing(codex.env);
+    failing(env);
     expect(await subs.status()).toEqual([]);
   });
 
@@ -115,6 +117,15 @@ describe("a Codex status read that fails", () => {
     await writeFile(join(home, "auth.json"), JSON.stringify({ tokens: { access_token: "another sign-in" } }));
     failing(codex.env);
     expect(await subs.status()).toEqual([]);
+  });
+
+  test("confirms no enrollment with the identity it kept", async () => {
+    const { subs, codex } = await setup();
+    expect(await subs.status()).toEqual(reported);
+    failing(codex.env);
+    const sent: unknown[] = [];
+    expect(await subs.enroll("codex", "c".repeat(32), (m) => sent.push(m) > 0)).toMatchObject({ ok: false });
+    expect(sent).toEqual([]);
   });
 });
 
