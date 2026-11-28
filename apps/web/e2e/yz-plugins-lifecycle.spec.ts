@@ -13,8 +13,7 @@ import { rpc } from "./fixtures.ts";
 // on a proposal the owner approves in the chat, override an agent and a skill file, update from a new
 // commit (a conflict, a widening change, a table field, a wording change, a skill file the owner also
 // changed), uninstall keeping the overridden agent, then run a Job of it. Cloud harness on a scripted
-// model. Runs after settings.spec.ts, which starts the Assistant (Stem): it is moved to this
-// spec's harness, and back.
+// model. Stem is moved to this spec's harness, and back (made on it when it isn't there yet).
 const WAIT_MS = 20_000;
 const expect = baseExpect.configure({ timeout: WAIT_MS });
 test.describe.configure({ timeout: 180_000 });
@@ -76,7 +75,7 @@ test("install a plugin with its definitions, override an agent, update, uninstal
     skills: await ids("skills/list", "packageId"),
     tools: await ids("tools/list"),
   };
-  // The agents of the plugin are written for a cloud harness; this app has none yet (settings.spec.ts makes its own later).
+  // The agents of the plugin are written for a cloud harness; this one makes its own.
   const harness = await rpc<{ id: string }>(page, "harnesses/create", {
     type: "cloud",
     name: "Lifecycle model",

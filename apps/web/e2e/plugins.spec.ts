@@ -82,7 +82,6 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await openApp(page);
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await expect(page.getByRole("heading", { name: "Discover" })).toBeVisible();
-  await expect(page.getByText("No plugin yet")).toBeVisible();
   await expect(page.getByText("https://github.com/anthropics/claude-plugins-official.git")).toBeVisible();
   await hydrated(page);
 
@@ -91,11 +90,12 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(page.getByRole("alert")).toContainText("Use an https:// Git URL");
   await page.getByLabel("Marketplace Git URL").fill(url);
   await clickAndWait(page, page.getByRole("button", { name: "Add marketplace" }), "marketplaces/add");
-  await expect(page.getByRole("button", { name: "Remove acme-plugins" })).toBeVisible();
-  await expect(page.getByText(/^2 plugins · synced/)).toBeVisible();
+  // Only what this test added: other specs' marketplaces may be listed too.
+  const market = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove acme-plugins" }) });
+  await expect(market.getByText(/^2 plugins · synced/)).toBeVisible();
   await expect(page.getByText("Unsupported source: “npm” sources aren't supported")).toBeVisible();
   await page.getByLabel("Search plugins").fill("writing");
-  await expect(page.getByRole("button", { name: /^Install / })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "Install writing-kit" })).toBeVisible();
   await page.mouse.move(0, 0);
   await shots(page, "marketplace-discover");
 
@@ -198,8 +198,7 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await files.getByRole("button", { name: "Close" }).first().click();
   await expect(files).toBeHidden();
 
-  // Removing it takes its skill package, which no agent uses, and keeps its tool, then the
-  // owner's own: deleted here, since skills.spec.ts and tools.spec.ts start from empty lists.
+  // Removing it takes its skill package and its tool, which nothing of the owner's uses.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Installed", exact: true }).click();
   await expect(row).toContainText("Choose what to remove; items you keep stay in your workspace");
@@ -209,12 +208,11 @@ test("add a marketplace, install a plugin's skills, see them in Skills and Insta
   await expect(removal.getByText("Nothing of it is in use: its 2 elements go with it.")).toBeVisible();
   await shots(page, "plugin-removal-checklist");
   await removal.getByRole("button", { name: "Remove plugin" }).click();
-  await expect(page.getByText("No plugin installed")).toBeVisible();
+  await expect(row).toBeHidden();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Skills" }).click();
   await expect(page.getByRole("button", { name: /^writing-kit/ })).toBeHidden();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Tools" }).click();
   await expect(page.getByRole("button", { name: /^docs/ })).toBeHidden();
-  await expect(page.getByText("No tool yet")).toBeVisible();
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Plugins" }).click();
   await page.getByRole("link", { name: "Discover", exact: true }).click();
   await page.getByRole("button", { name: "Remove acme-plugins" }).click();
@@ -254,8 +252,9 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await page.getByLabel("Kind of source").selectOption("git");
   await page.getByLabel("Marketplace Git URL").fill(pathToFileURL(dir).href);
   await clickAndWait(page, page.getByRole("button", { name: "Add marketplace" }), "marketplaces/add");
-  await expect(page.getByText("Skill repository")).toBeVisible();
-  await expect(page.getByText(/^1 plugin · synced/)).toBeVisible();
+  const market = page.getByRole("listitem").filter({ has: page.getByRole("button", { name: "Remove skill-repo" }) });
+  await expect(market.getByText("Skill repository")).toBeVisible();
+  await expect(market.getByText(/^1 plugin · synced/)).toBeVisible();
   await page.mouse.move(0, 0);
   await shots(page, "skill-repo-discover");
 
@@ -269,7 +268,7 @@ test("add a Git repository of skills: one entry, installed like a plugin, then r
   await expect(page.getByRole("listitem", { name: "skill-repo" })).toContainText("tidy-notes");
   await page.getByRole("button", { name: "Remove skill-repo" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Remove plugin" }).click();
-  await expect(page.getByText("No plugin installed")).toBeVisible();
+  await expect(page.getByRole("listitem", { name: "skill-repo" })).toBeHidden();
   await page.getByRole("link", { name: "Discover", exact: true }).click();
   await page.getByRole("button", { name: "Remove skill-repo" }).click();
   await expect(page.getByRole("button", { name: "Remove skill-repo" })).toBeHidden();

@@ -5,7 +5,7 @@ import { FakeRunner } from "./fake-runner.ts";
 import { hydrated } from "./hydrated.ts";
 import { openApp } from "./session.ts";
 
-// One owner for the file (the first test runs setup); tests run in order against the same app.
+// Tests run in order against the same app and owner, and this file starts nothing another spec's fixtures make (Stem, an agent named Writer).
 test.describe.configure({ mode: "serial" });
 
 let runner: FakeRunner | undefined;
@@ -95,16 +95,17 @@ test("a runner pairs, a harness goes online and an agent is created", async ({ p
   await page.getByRole("link", { name: "Create an agent" }).click();
   await expect(page).toHaveURL(/\/settings\/agents\/new\?harness=harness_/);
   await hydrated(page);
-  await page.getByLabel("Name").fill("Writer");
+  // Not "Writer": that is the agent `writer()` makes, and a spec picking it must find one.
+  await page.getByLabel("Name").fill("Note taker");
   await expect(page.getByLabel("Harness")).toContainText("Claude on Workstation");
-  await page.getByLabel("System prompt").fill("You write short, clear notes.");
+  await page.getByLabel("System prompt").fill("You take short, clear notes.");
   await page.getByRole("button", { name: "Create agent" }).click();
   // A new agent goes back to the list, which offers the next step.
   await expect(page).toHaveURL(/\/settings\/agents\?saved=true$/);
   await expect(page.getByRole("link", { name: "Configure a manual workflow" })).toBeVisible();
 
-  await page.getByRole("link", { name: /Writer/ }).click();
-  await expect(page.getByLabel("System prompt")).toHaveValue("You write short, clear notes.");
+  await page.getByRole("link", { name: /Note taker/ }).click();
+  await expect(page.getByLabel("System prompt")).toHaveValue("You take short, clear notes.");
   // Saving an edit shows the banner in room kept for it: the form doesn't move.
   // At the narrowest supported width, where the banner wraps. In page coordinates: clicking
   // Save may scroll the page.
@@ -114,18 +115,7 @@ test("a runner pairs, a harness goes online and an agent is created", async ({ p
   await page.getByRole("button", { name: "Save" }).click();
   await expect(page.getByText("Agent saved.")).toBeVisible();
   expect(await top()).toBe(before);
-
-  // An install set up before the Assistant: Home sends the owner to start it, on a harness they pick.
-  await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto("/");
-  await expect(page).toHaveURL(/\/assistant$/);
-  await hydrated(page);
-  await page.getByRole("combobox", { name: "Harness" }).selectOption({ label: "Claude on Workstation" });
-  await page.getByRole("button", { name: "Start Stem" }).click();
-  await expect(page.getByText("Describe your business or use case and how you'd like to automate it.")).toBeVisible();
-  await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Welcome, Ada" })).toBeVisible();
-  await expect(page).toHaveURL(/\/$/);
+  // Starting Stem on a first launch is custom-setup.spec.ts's: here it may already run (`stem()`).
 });
 
 test("a harness used by an agent cannot be deleted; the status follows the runner", async ({ page }) => {
