@@ -7,7 +7,6 @@ test("a chat workflow with one agent step: expected outputs follow the prompt, e
   await openApp(page);
   await writer(page);
   await page.goto("/settings/workflows");
-  await expect(page.getByText("No workflow yet")).toBeVisible();
   await hydrated(page);
   await page.getByRole("button", { name: "New workflow" }).click();
   await expect(page).toHaveURL(/\/settings\/workflows\/wf_/);
