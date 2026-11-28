@@ -101,7 +101,7 @@ test("each named procedure base admits whom its name says, and every one is list
   const context = await install();
   const { organizationId, workspaceId, startedJob: job } = context;
   const bases = Object.fromEntries(Object.entries(rpc).filter(([name]) => name.endsWith("Procedure"))) as Record<string, typeof rpc.memberProcedure>;
-  const admitted = (procedure: typeof rpc.memberProcedure, as: typeof context) =>
+  const admitted = (procedure: typeof rpc.memberProcedure, as: rpc.InitialContext) =>
     call(
       procedure.handler(() => "admitted"),
       undefined,
@@ -113,7 +113,7 @@ test("each named procedure base admits whom its name says, and every one is list
   });
   const inMain = naming(organizationId, workspaceId);
   const outcomes: Record<string, Record<string, unknown>> = Object.fromEntries(Object.keys(bases).map((name) => [name, {}]));
-  const record = async (caller: string, as: typeof context) => {
+  const record = async (caller: string, as: rpc.InitialContext) => {
     for (const [name, procedure] of Object.entries(bases)) outcomes[name]![caller] = await admitted(procedure, as);
   };
   await record("orgOwner", inMain);
