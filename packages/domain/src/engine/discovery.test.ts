@@ -114,14 +114,14 @@ const cases: [string, Listing, (f: Fixture) => Promise<unknown>][] = [
       await f.db.insert(chatQueue).values({ id: f.id("queued"), ownerId: f.ownerId, runId, stepRunId: stepId, text: "Hi" });
     },
   ],
-  ["a step queued for a slot", recoverScopes, async (f) => f.run("succeeded", { queuedAt: PAST })],
+  ["a step queued for a slot", recoverScopes, async (f) => f.run("succeeded", { queuedAt: PAST, queueClass: "new" })],
   ["a step handed a slot to deliver", recoverScopes, async (f) => f.run("succeeded", { working: true, pendingAction: { kind: "deliver" } as never })],
   [
     "a held step of a root that went on",
     recoverScopes,
     async (f) => {
       const rootId = f.id("root");
-      await f.db.insert(roots).values({ id: rootId, workspaceId: f.b.workspaceId, ownerId: f.ownerId, kind: "person" as never });
+      await f.db.insert(roots).values({ id: rootId, workspaceId: f.b.workspaceId, ownerId: f.ownerId, kind: "user" });
       const { runId } = await f.run("succeeded", { status: "waiting", sessionId: "ses_held", pendingAction: { kind: "start" } as never });
       await f.db.update(runs).set({ rootId }).where(eq(runs.id, runId));
     },
