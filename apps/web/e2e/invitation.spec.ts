@@ -1,5 +1,6 @@
 import AxeBuilder from "@axe-core/playwright";
 import { expect, test } from "@playwright/test";
+import { hydrated } from "./hydrated.ts";
 
 const WCAG = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 
@@ -68,6 +69,45 @@ test("an invitation registers a new recipient, then returns an existing account 
     await recipient.emulateMedia({ colorScheme: "dark" });
     await recipient.screenshot({ path: test.info().outputPath("no-workspace-dark.png"), animations: "disabled" });
     expect((await new AxeBuilder({ page: recipient }).withTags(WCAG).analyze()).violations).toEqual([]);
+
+    // The owner hands the organization over: with no workspace role of their own, they see whom to ask.
+    const ada = (await (await page.request.post("/api/rpc/organization/directory", { headers: asOwner, data: {} })).json()).json.people.find(
+      (p: { role: string }) => p.role === "owner",
+    );
+    const shot = async (name: string) => {
+      for (const colorScheme of ["light", "dark"] as const) {
+        await page.emulateMedia({ colorScheme });
+        await page.screenshot({ path: test.info().outputPath(`${name}-${colorScheme}.png`), animations: "disabled" });
+      }
+      await page.emulateMedia({ colorScheme: "light" });
+    };
+    await page.goto("/settings/people");
+    await hydrated(page);
+    const make = page.getByRole("button", { name: "Make Pat the organization’s owner" });
+    await make.scrollIntoViewIfNeeded();
+    await shot("organization-members");
+    await make.click();
+    const handOver = page.getByRole("dialog", { name: "Make Pat the owner?" });
+    await expect(handOver).toContainText("until Pat gives you one");
+    await shot("make-owner");
+    try {
+      await handOver.getByRole("button", { name: "Make owner" }).click();
+      await expect(page.getByRole("heading", { name: "No workspace yet" })).toBeVisible();
+      await expect(page.getByRole("link", { name: email })).toBeVisible();
+    } finally {
+      // Handed back: the rest of the project is the first owner's.
+      await recipient.request.post("/api/rpc/organization/transferOwnership", { headers: asOwner, data: { json: { userId: ada.userId } } });
+    }
+
+    // The owner removes them from the organization; their account stays.
+    await page.reload();
+    await hydrated(page);
+    await page.getByRole("button", { name: "Remove Pat from the organization" }).click();
+    await shot("remove-from-organization");
+    await page.getByRole("dialog", { name: "Remove Pat from the organization?" }).getByRole("button", { name: "Remove from organization" }).click();
+    await expect(page.getByText("Pat removed from the organization.")).toBeVisible();
+    await recipient.reload();
+    await expect(recipient.getByText("You don't belong to any organization.", { exact: false })).toBeVisible();
   } finally {
     await ctx.close();
   }

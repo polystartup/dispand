@@ -8,10 +8,12 @@ import { afterEach, expect, test, vi } from "vitest";
 vi.mock("../lib/api.ts", async () => (await import("../test/fake-api.ts")).apiModule());
 const { fake } = await import("../test/fake-api.ts");
 const { workspace, organization } = fake;
+const invalidate = vi.fn();
 vi.mock("@tanstack/react-router", () => ({
   createFileRoute: () => (options: unknown) => ({ options }),
   retainSearchParams: () => () => ({}),
   useNavigate: () => vi.fn(),
+  useRouter: () => ({ invalidate }),
 }));
 const { WorkspaceScope } = await import("../lib/workspace.tsx");
 const { Route } = await import("./_app.settings.people.tsx");
@@ -164,6 +166,37 @@ test("the organization's owner deletes a person after a confirmation that says h
   expect(organization.archiveMember.mock.calls[0]?.[0]).toEqual({ userId: "member" });
   // Now in Deleted people, restorable.
   expect(await screen.findByRole("button", { name: "Restore Sam" })).toBeTruthy();
+});
+
+test("handing ownership over reads the person's roles again, then says who owns the organization", async () => {
+  const user = userEvent.setup();
+  workspace.managed.mockResolvedValue([managedScope]);
+  workspace.people.mockResolvedValue([owner, member]);
+  let done!: () => void;
+  organization.transferOwnership.mockImplementation(
+    () =>
+      new Promise((resolve) => {
+        done = () => resolve({ transferred: true });
+      }),
+  );
+  organization.directory.mockResolvedValue({
+    workspaces: [{ workspaceId: "w", name: "Engineering" }],
+    people: [
+      { userId: "owner", name: "Ada", email: "ada@example.com", role: "owner", workspaces: [] },
+      { userId: "member", name: "Sam", email: "sam@example.com", role: "member", workspaces: [] },
+    ],
+  });
+  open();
+  await user.click(await screen.findByRole("button", { name: "Make Sam the organization’s owner" }));
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Make owner" }));
+  // As over a network: the answer comes once the dialog has closed and given its focus away.
+  await vi.waitFor(() => expect(document.activeElement?.textContent).toBe("Saving…"));
+  done();
+  const said = await screen.findByText("Sam now owns the organization.");
+  expect(said).toBe(document.activeElement);
+  expect(invalidate).toHaveBeenCalledOnce();
+  // The owner's reads, which would now be refused, aren't made again.
+  expect(organization.directory).toHaveBeenCalledOnce();
 });
 
 test("a workspace manager who doesn't own the organization sees no Delete and no Deleted people", async () => {

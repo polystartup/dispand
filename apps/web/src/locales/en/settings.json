@@ -92,7 +92,7 @@
   },
   "organizationPeople": {
     "title": "Organization members",
-    "text": "Everyone in the organization, with the workspaces they have a role in. Give someone a role in a workspace, take it away, or delete them from the organization.",
+    "text": "Everyone in the organization, with the workspaces they have a role in. Give someone a role in a workspace or take it away, remove them from the organization, delete their account, or make them its owner.",
     "loadFailed": "Could not load the organization’s members.",
     "member": "Organization member",
     "everyWorkspace": "Has every right in every workspace.",
@@ -107,7 +107,19 @@
     "addPerson": "Add {{name}} to the workspace",
     "added": "{{name}} added to {{workspace}}.",
     "taken": "{{name}} removed from {{workspace}}.",
-    "saving": "Saving…"
+    "saving": "Saving…",
+    "makeOwner": "Make owner",
+    "makeOwnerPerson": "Make {{name}} the organization’s owner",
+    "makeOwnerConfirm": "Make {{name}} the owner?",
+    "makeOwnerEffect": "{{name}} gets every right in every workspace of the organization, and you become a member. Only {{name}} can give you the ownership back.",
+    "makeOwnerKeeps": "You keep only your roles in {{workspaces, list}}.",
+    "makeOwnerKeepsNone": "You have no role in any workspace, so you lose access to all of them until {{name}} gives you one.",
+    "madeOwner": "{{name}} now owns the organization.",
+    "leave": "Remove from organization",
+    "leavePerson": "Remove {{name}} from the organization",
+    "leaveConfirm": "Remove {{name}} from the organization?",
+    "leaveEffect": "{{email}} loses access to every workspace of the organization. Their account and what they made stay. To bring them back, invite them again.",
+    "left": "{{name}} removed from the organization."
   },
   "system": {
     "title": "System",

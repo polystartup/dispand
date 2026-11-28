@@ -470,6 +470,22 @@ for (const scheme of ["light", "dark"] as const) {
         },
       },
       {
+        name: "the confirmation to make a person the organization's owner",
+        route: () => "/settings/people",
+        open: async (page, { teammate }) => {
+          await page.getByRole("button", { name: `Make ${teammate} the organization’s owner` }).click();
+          return dialog(page);
+        },
+      },
+      {
+        name: "the confirmation to remove a person from the organization",
+        route: () => "/settings/people",
+        open: async (page, { teammate }) => {
+          await page.getByRole("button", { name: `Remove ${teammate} from the organization` }).click();
+          return dialog(page);
+        },
+      },
+      {
         name: "the confirmation to delete a person from the organization",
         route: () => "/settings/people",
         open: async (page, { teammate }) => {
