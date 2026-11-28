@@ -27,7 +27,8 @@ import { loadToolSchemas } from "../tools/executor.ts";
 import { newId } from "../ids.ts";
 import { message } from "../messages/index.ts";
 import { type InitialContext, inPlacedScope, inStreamScope, untilRefused, memberProcedure, signedInProcedure, notJob } from "../rpc/context.ts";
-import { authorize, placeOfRun } from "../workspace/authorize.ts";
+import { inScope } from "../db/scope.ts";
+import { authorize, hasRole, placeOfRun } from "../workspace/authorize.ts";
 import { loadTableSchemas } from "../data/tables.ts";
 import { consultMarks } from "../jobs/consults.ts";
 import { tableIdsOf } from "./data-steps.ts";
@@ -468,24 +469,39 @@ const getRun = signedInProcedure
   .input(runInput)
   .handler(({ input, context }) => inRunPlace(context, input.runId, async () => snapshot(context, await readRun(context, input.runId))));
 
+/**
+ * In one statement, in the run's place: whether its reader still holds a role there (`authorize`),
+ * and whether `readableRun` still lets them read the run. No row: the run is no longer there.
+ */
+const readerOfRun = (context: RunReader, runId: string, place: { organizationId: string; workspaceId: string }) =>
+  context.db
+    .select({
+      admitted: sql<boolean>`${hasRole(context.db, context.ownerId, place.organizationId, place.workspaceId)}`,
+      readable: sql<boolean>`(${readableRun(context)}) is true`,
+      ownerId: runsTable.ownerId,
+    })
+    .from(runsTable)
+    .where(and(eq(runsTable.id, runId), eq(runsTable.workspaceId, place.workspaceId)));
+
 /** The run as it is, then every change to it while the client listens. */
 const stream = signedInProcedure.input(runInput).handler(async function* ({ input, context, signal }) {
-  const allowed = () =>
-    context.db
-      .select({ ownerId: runsTable.ownerId })
-      .from(runsTable)
-      .where(and(eq(runsTable.id, input.runId), readableRun(context)));
-  // The run's workspace, under SYSTEM; then the person's membership there, live, before every read.
-  // Its organization, kept from the snapshot's admission for the idle re-checks: a run never moves.
-  let organizationId = "";
+  // Before every read, the person's access, live. At the first, the run's workspace under SYSTEM,
+  // then their membership there under them alone. A run never moves: once admitted, each next
+  // read re-admits them and checks the run in that workspace, in one statement (`readerOfRun`).
+  let place: { organizationId: string; workspaceId: string } | undefined;
   const admit = async () => {
+    if (place) {
+      const at = place;
+      const [run] = await inScope({ userId: context.ownerId, ...at }, () => readerOfRun(context, input.runId, at));
+      if (!run?.admitted) throw runNotFound();
+      return { ...at, run };
+    }
     const placed = await placeOfRun(context.db, input.runId);
-    if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId)))
-      throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-    organizationId = placed.organizationId;
-    return placed;
+    if (!placed || !(await authorize(context.db, context.ownerId, placed.organizationId, placed.workspaceId))) throw runNotFound();
+    place = placed;
+    return { ...placed, run: undefined };
   };
-  const scoped = <T>(read: () => Promise<T>) => inStreamScope(context, admit, read);
+  const scoped = <T>(read: (admitted: Awaited<ReturnType<typeof admit>>) => Promise<T>) => inStreamScope(context, admit, read);
   // Subscribed before the snapshot is read, so no change falls between them. A client that falls
   // more than STREAM_BUFFER changes behind gets a fresh snapshot instead: nothing is dropped unseen.
   const queue: RunEvent[] = [];
@@ -521,17 +537,17 @@ const stream = signedInProcedure.input(runInput).handler(async function* ({ inpu
           }
           continue;
         }
-        const out = await scoped(async () => {
-          const [row] = await allowed();
-          if (!row) throw new ORPCError("NOT_FOUND", message("workflows.runNotFound"));
-          if (change.type === "queued" && row.ownerId !== context.ownerId) return null;
+        // A row event comes after the snapshot, so `admit` has checked the run (fails closed otherwise).
+        const out = await scoped(async ({ run }) => {
+          if (!run?.readable) throw runNotFound();
+          if (change.type === "queued" && run.ownerId !== context.ownerId) return null;
           return change.type === "question" ? { ...change, question: await runQuestion(context.db, context.ownerId, change.question) } : change;
         });
         if (out) yield out;
       } else
         await untilRefused(
           context,
-          () => organizationId,
+          () => place?.organizationId ?? "",
           () => scoped(async () => {}),
           new Promise<void>((resolve) => (wake = resolve)),
         );
