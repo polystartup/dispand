@@ -53,7 +53,7 @@ from competing with the app, pin them apart, for example
 | `--max-p99` | `10000` | Stop the ramp after a step whose delivery p99 is above this many ms. |
 | `--cpu-prof` | off | Profile the app's process (`node --cpu-prof`). The profile is written when the app stops, in the results' `app/` directory. |
 | `--out` | `bench/load/results/<time>` | Where the results go. |
-| `--keep` | off | Leave the containers running at the end. |
+| `--keep` | off | Leave the containers running at the end: the runners and people stop with the harness, but the app goes on firing schedules and polls. |
 
 ## Reading the results
 
