@@ -43,7 +43,7 @@ they were removed gets nothing more, and an organization's refusal tells them no
 - every tool's credentials in use, never to read: a workflow's Tool step calls an action with no
   Approval, and a member may set an agent's action to run unasked. A member also turns a tool's
   actions on or off for the whole workspace, chooses what polls may read, and connects a tool by
-  OAuth, which shares that account with everyone in it;
+  OAuth, which shares that account with everyone in it, with the client the tool already has;
 - the machine of a runner the workspace has, through its agents: the permission questions of a Job a
   member started go to that member, and answering one asks for no role. An approved command runs as
   the runner machine's user on the bare install, and inside the session's worker in the container
@@ -54,7 +54,9 @@ they were removed gets nothing more, and an organization's refusal tells them no
   manager starts passes the manager's procedures a Job may call (reading the Audit, with
   `configure`), and what it reads goes in a transcript members read.
 
-**Out of reach:** creating, changing or deleting harnesses; adding, changing or deleting tools;
+**Out of reach:** creating, changing or deleting harnesses; adding, changing or deleting tools,
+an OAuth tool's entered client id and secret included (changing or removing them ends the tool's
+connection for everyone);
 registering, renaming, revoking or updating runners; plugins, marketplaces and native plugin grants;
 the workspace's settings, its Audit and its memberships; another person's Assistant, pages and
 Inbox; any stored secret's value; other workspaces.
@@ -73,7 +75,7 @@ all of its members. [workspaces.md](workspaces.md), [agents.md](agents.md),
   machine. A cloud harness's base URL may be loopback or on the deployment's own network, and the
   server lists models and calls them there: a deployment that hosts people it doesn't trust with
   that blocks those addresses at its egress;
-- tools: their address, transport and headers; runners: registering one, whose machine then receives
+- tools: their address, transport, headers and an OAuth tool's entered client; runners: registering one, whose machine then receives
   the sessions of the agents set on it; plugins, marketplaces and native plugin grants, which bring
   instructions and, on runners that allow it, code;
 - the workspace's settings, its Audit and who is in it.

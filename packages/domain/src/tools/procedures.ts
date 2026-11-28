@@ -359,9 +359,11 @@ const update = managerProcedure
 
 /**
  * Starts an OAuth tool's sign-in (Connect, Re-authorize) and gives the URL to send the owner to.
- * `client` is the client id (and secret) the authorization server gave the owner, for one that
- * supports neither client metadata documents nor registration; null removes it. The flow's
- * `state` and verifier stay sealed here, for the callback.
+ * Any member connects. `client` is the client id (and secret) the authorization server gave the
+ * owner, for one that supports neither client metadata documents nor registration; null removes
+ * it. Either one erases the tokens the whole workspace uses, so only a manager sends `client`, as
+ * only a manager changes the tool's other settings (`update`). The flow's `state` and verifier
+ * stay sealed here, for the callback.
  */
 const authorize = memberProcedure
   .input(
@@ -387,6 +389,8 @@ const authorize = memberProcedure
     }),
   )
   .handler(async ({ input, context }) => {
+    if (input.client !== undefined && context.access.role !== "owner" && context.access.role !== "manager")
+      throw new ORPCError("FORBIDDEN", message("workspace.managerOnly"));
     const row = await find(context.db, context.access.workspaceId, input.id);
     if (row.kind !== "http" || row.auth !== "oauth") bad("tools.notOauth");
     const store = oauthStore(context.db, context.secrets, row);

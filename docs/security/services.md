@@ -31,7 +31,9 @@
   connection's 16 MiB budget; a token endpoint's refusal, whatever its status, keeps only its
   error code before the SDK reads (and logs) it. An OAuth tool sends no static header and is
   reached only over https (or on this machine), and what it sends back is redacted of its
-  tokens and client secrets. An entered client id and secret are bound to the authorization
+  tokens and client secrets. Any member connects a tool, but only a manager enters, changes or
+  removes its client id and secret, since that erases the tokens the whole workspace uses
+  (`tools.authorize` with `client`). An entered client id and secret are bound to the authorization
   server they were first used with: another one the server names later never gets them. A flow
   or refresh still under way when the tool is pointed elsewhere saves nothing and connects
   nothing. Only

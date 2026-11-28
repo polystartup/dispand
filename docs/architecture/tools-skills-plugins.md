@@ -50,7 +50,7 @@
   guard; redirects only within the request's origin, the SDK's rule). Plain columns say what the
   page shows without opening the seal: `oauth_status` (`authorize`, `connected`,
   `reauthorize`), `oauth_client_id` (`enteredClientId` in views), and `oauth_state_hash` (SHA-256 of the flow's `state`).
-  `tools.authorize` (with an optional entered client) starts a flow with fresh discovery and no
+  `tools.authorize` (any member; an entered client, which erases the stored tokens, a manager's only) starts a flow with fresh discovery and no
   token and returns the authorization URL; `GET /oauth/callback` (`handleToolOAuthCallback`,
   the owner's session) finds the flow by its state's hash among the owner's tools, compares the
   state, uses it up (10 minutes at most), hands the parameters to the transport's `finishAuth`,
