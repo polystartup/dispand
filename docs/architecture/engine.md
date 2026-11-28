@@ -3,8 +3,12 @@
 - **Workflows and the engine:** a workflow (`packages/domain/src/workflows`) is a manual
   trigger (Button or Chat) or a schedule trigger (a 5-field cron read in an IANA timezone,
   Europe/Paris by default, that gives `scheduled_for`; `schedule.ts` checks it, finds its fires
-  with `cron-parser`, a 02:30 that a DST change skips or repeats firing at most once that day,
-  and maps it to the editor's presets) and steps (agent, condition, data) joined by edges; edges out of a condition carry
+  with `croner`, and maps it to the editor's presets. Across a DST change, a time the cron names
+  (a 02:30, or one in a list or range) fires once: on its first pass when the hour comes twice,
+  at the end of the gap (03:00 in Paris) when it never comes; a cron with `*` or a step in its
+  minute or hour fires in real time, on both passes of a repeated hour and never in a skipped
+  one. `asSaved` reads the step forms cron-parser, used before, accepted as it did: `5/15` runs to
+  the field's end, and a step longer than its field keeps only its start) and steps (agent, condition, data) joined by edges; edges out of a condition carry
   its `branch` (`then` or `else`) and it gives `matched`, from `evaluateCondition` (`condition.ts`) on an
   upstream value. `workflows.delete` (the editor's menu, behind a confirmation) archives it
   (`archived_at`), refused while one of its runs is going: it no longer lists, opens or runs, its

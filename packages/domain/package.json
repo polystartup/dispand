@@ -57,7 +57,7 @@
     "@orpc/server": "^1.16.4",
     "@types/web-push": "^3.6.4",
     "better-auth": "^1.7.27",
-    "cron-parser": "^5.10.6",
+    "croner": "^11.0.1",
     "diff": "^9.0.0",
     "drizzle-orm": "^0.45.4",
     "openai": "^7.62.0",

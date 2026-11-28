@@ -25,6 +25,10 @@ Status: Prototype
 - **Product rules** (owner decisions, cheap to change):
   - A schedule that falls due while Dispand is down fires **once** when it is back, for the
     latest missed time, never once per missed time.
+  - A schedule follows its timezone's clock across **DST changes**: a time it names (02:30)
+    fires once, on its first pass when that hour comes twice, at the end of the gap (03:00) when
+    it never comes. An hourly or every-few-minutes schedule fires every real hour: twice in a
+    repeated hour, never in a skipped one.
   - A schedule that falls due while a run of the same workflow is still going is **skipped**,
     and the skip shows in the workflow's recent fires.
   - Any agent may have a trigger on **other agents' Jobs** (created, finished, or failed or

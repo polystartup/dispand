@@ -127,9 +127,8 @@ function pollRun(
 
 /**
  * A due schedule's latest fire in `(since, now]` and its next one; null, logged, when they can't be
- * read now. cron-parser throws near some zones' DST changes (a half-hour one, as Lord Howe's): that
- * schedule is tried again `UNREADABLE_RETRY_MS` later, its missed time kept, while the tick goes on
- * for every other.
+ * read now (a stored timezone this runtime's time zone data doesn't have): that schedule is tried
+ * again `UNREADABLE_RETRY_MS` later, its missed time kept, while the tick goes on for every other.
  */
 function dueTimes(cron: string, timezone: string, since: Date, now: Date): { at: Date | null; next: Date } | null {
   try {
