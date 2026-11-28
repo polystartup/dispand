@@ -134,7 +134,7 @@ import { runnerForRun, sessionHarness, sessionSource } from "./session-harness.t
 import { addresseeOf } from "./addressee.ts";
 import { answerBy, answererHolds, firstHop, nextMove, qualifies, REFUSED_TEXT } from "./routing.ts";
 import { ACTIVE_STEP, endStep, OPEN_STEP, reopen, replaceSession, transcriptGone } from "./step-lifecycle.ts";
-import { foldParts, lastMessage, MAX_MESSAGE_TEXT, messageText, wholeText } from "./message-parts.ts";
+import { foldParts, lastMessage, MAX_MESSAGE_TEXT, messageText, StreamedCopies, wholeText } from "./message-parts.ts";
 
 const traces = tracer("engine");
 const counts = meter("engine");
@@ -157,8 +157,6 @@ function creatorOf(ownerId: string | null, agentId: string, cause: JobCause): Au
 }
 
 /** Events after which a chat may be idle, its queue to drain. */
-/** How many steps' streaming text an engine keeps (`Engine.streamed`): one dropped is read again when it streams next. */
-const STREAMED_COPIES = 256;
 const SETTLING = new Set<HarnessEvent["type"]>(["turn-end", "steer-result", "interrupt-result", "session-ended", "result", "outputs-accepted", "error"]);
 
 /** The run an event is about, which `publish` sends it to. */
@@ -305,9 +303,10 @@ export class Engine {
    * By step, the whole text of its message streaming here, with the latest part this engine added:
    * the message's live events carry its whole text without reading its parts back. A copy whose part
    * isn't the message's latest any more (another engine added or folded parts, or its transaction
-   * rolled back) is read again (`wholeText`). A fold of the step's parts, or its end, drops it.
+   * rolled back) is read again (`wholeText`). A fold of the step's parts, or its end, drops it, and
+   * so do the bounds on what it keeps (`StreamedCopies`).
    */
-  private readonly streamed = new Map<string, { messageId: string; text: string; part: string }>();
+  private readonly streamed = new StreamedCopies();
 
   constructor(
     readonly db: Db,
@@ -2946,10 +2945,7 @@ export class Engine {
         .values({ messageId: last.id, text: event.delta })
         .returning({ id: sql<string>`${messageParts.id}::text` });
       const text = before + event.delta;
-      this.streamed.delete(step.id);
       this.streamed.set(step.id, { messageId: last.id, text, part: part!.id });
-      // Most recently streamed last: the oldest copy goes first (a copy gone is read again).
-      if (this.streamed.size > STREAMED_COPIES) this.streamed.delete(this.streamed.keys().next().value!);
       out.push({ type: "message", message: messageView({ ...last, text }) });
       return;
     }
