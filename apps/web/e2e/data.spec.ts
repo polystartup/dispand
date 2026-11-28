@@ -10,7 +10,7 @@ async function addField(page: Page, name: string, type: string) {
   await expect(page.getByRole("columnheader", { name: new RegExp(name) })).toBeVisible();
 }
 
-const cell = (page: Page, field: string, row = 0) => page.getByRole("gridcell", { name: field, exact: true }).nth(row);
+const cell = (page: Page, field: string, row = 0) => page.locator(`[role=gridcell][data-field="${field}"]`).nth(row);
 const headers = (page: Page) => page.getByRole("columnheader").allInnerTexts();
 
 async function shots(page: Page, name: string) {
@@ -118,7 +118,7 @@ test("a table: fields, inline edits, rename, move, retype and delete", async ({ 
   await page.getByRole("checkbox", { name: "Select row" }).nth(1).check();
   await page.getByRole("button", { name: "Delete 1 row" }).click();
   await page.getByRole("dialog").getByRole("button", { name: "Delete" }).click();
-  await expect(page.getByRole("gridcell", { name: "Name", exact: true })).toHaveCount(1);
+  await expect(page.locator(`[role=gridcell][data-field="Name"]`)).toHaveCount(1);
   await expect(page.getByText("1 row", { exact: true })).toBeVisible();
 
   // The list shows the table and its rows.
@@ -153,7 +153,7 @@ test("sort, filter, row detail and files", async ({ page }) => {
     await page.getByRole("button", { name: "Create row" }).click();
     await expect(page.getByRole("dialog")).toBeHidden();
     // The row shows once: it reaches the grid from the list only.
-    await expect(page.getByRole("gridcell", { name: "Name", exact: true }).filter({ hasText: name! })).toHaveCount(1);
+    await expect(page.locator(`[role=gridcell][data-field="Name"]`).filter({ hasText: name! })).toHaveCount(1);
   }
 
   // Filter: Name contains "Disp" shows 1 of 2 rows, and a reload keeps it. A row selected and

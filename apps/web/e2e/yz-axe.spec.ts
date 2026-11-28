@@ -101,8 +101,7 @@ for (const scheme of ["light", "dark"] as const) {
     test("an agent's, a table's and a workflow's pages have none", async ({ page }) => {
       const { agentId, tableId, workflowId } = await seed(page);
       await accessible(page, `/settings/agents/${agentId}`, { ready: page.getByLabel("System prompt") });
-      // A grid cell's accessible name is its column's, not its content: #620.
-      await accessible(page, `/settings/data/${tableId}`, { ready: page.getByRole("link", { name: /example\.com/ }), known: ["label-content-name-mismatch"] });
+      await accessible(page, `/settings/data/${tableId}`, { ready: page.getByRole("link", { name: /example\.com/ }) });
       await accessible(page, `/settings/workflows/${workflowId}`, { ready: page.getByLabel("Workflow name") });
     });
   });
