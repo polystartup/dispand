@@ -827,7 +827,7 @@ export class CloudRunner implements HarnessAdapter<CloudHarness> {
         role: "tool",
         callId: call.id,
         name: call.name,
-        result: `Denied${answer.message ? `: ${cut(answer.message, SHORT)}` : "."}`,
+        result: TEXTS.deniedApproval(answer.message && cut(answer.message, SHORT)),
         isError: true,
       };
       // The "no" covers what the model asked in the same turn: its other calls are not run.

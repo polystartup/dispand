@@ -12,6 +12,8 @@ import {
   REQUEST_APPROVAL_INPUT_SCHEMA,
   type SessionStart,
   TEXT,
+  MAX_OUTPUTS_BYTES,
+  TOOL_TEXTS,
 } from "@dispand/runner-protocol";
 import type { ToolSpec } from "./model-client.ts";
 
@@ -22,9 +24,6 @@ export const ASK_USER = "ask_user";
 export const SUBMIT_OUTPUTS = "submit_outputs";
 export { REQUEST_APPROVAL };
 export const READ_SKILL = "read_skill";
-
-/** Outputs travel in one event (outputs-accepted, and confirm-outputs), as on the runner. */
-const OUTPUTS_BYTES = 512 * 1024;
 
 const strictObject = (properties: Record<string, unknown>) => ({
   type: "object",
@@ -57,7 +56,7 @@ export const askUserSpec: ToolSpec = {
 export function submitOutputsSpec(fields: OutputField[]): ToolSpec {
   return {
     name: SUBMIT_OUTPUTS,
-    description: "Hand your results back to Dispand. Call it once you have every value.",
+    description: TOOL_TEXTS.submitOutputsDescription,
     inputSchema: strictObject(Object.fromEntries(fields.map((f) => [f.name, { type: "string", description: f.description ?? f.name }]))),
   };
 }
@@ -72,8 +71,6 @@ export function questionEvent(questionId: string, payload: QuestionPayload): Har
   const parsed = HarnessEvent.safeParse({ type: "question", questionId, payload });
   return parsed.success ? parsed.data : null;
 }
-
-const TOO_LONG_QUESTIONS = "These questions are too long to tell apart once shown to the owner: shorten them and ask again.";
 
 /** `ask_user` arguments as a choice question, or the error the model gets back. */
 export function askUserPayload(args: unknown): { payload: QuestionPayload } | { error: string } {
@@ -91,12 +88,12 @@ export function askUserPayload(args: unknown): { payload: QuestionPayload } | { 
     multiSelect: q?.multiSelect ?? false,
   }));
   const payload = { kind: "choice", questions: shaped } as QuestionPayload;
-  if (!questionEvent("", payload)) return { error: TOO_LONG_QUESTIONS };
+  if (!questionEvent("", payload)) return { error: TOOL_TEXTS.questionsTooLong };
   // Answers are keyed by question text, and options picked by label: both must be distinct.
   const distinct = (texts: string[]) => new Set(texts).size === texts.length;
   const choice = payload as Extract<QuestionPayload, { kind: "choice" }>;
   if (!distinct(choice.questions.map((q) => q.question)) || choice.questions.some((q) => !distinct(q.options.map((o) => o.label)))) {
-    return { error: TOO_LONG_QUESTIONS };
+    return { error: TOOL_TEXTS.questionsTooLong };
   }
   return { payload };
 }
@@ -105,10 +102,10 @@ export function askUserPayload(args: unknown): { payload: QuestionPayload } | { 
 export function outputValues(args: unknown, fields: OutputField[]): { values: Record<string, string> } | { error: string } {
   const given = (typeof args === "object" && args !== null ? args : {}) as Record<string, unknown>;
   const missing = fields.filter((f) => typeof given[f.name] !== "string").map((f) => f.name);
-  if (missing.length > 0) return { error: `Missing outputs: ${missing.join(", ")}. Call submit_outputs again with every value, as text.` };
+  if (missing.length > 0) return { error: TOOL_TEXTS.missingOutputs(missing) };
   const raw = Object.fromEntries(fields.map((f) => [f.name, given[f.name] as string]));
-  if (Object.values(raw).some((v) => v.length > TEXT) || Buffer.byteLength(JSON.stringify(raw)) > OUTPUTS_BYTES) {
-    return { error: `The outputs are too large: at most ${TEXT} characters each and 512 KiB in all. Shorten them and call submit_outputs again.` };
+  if (Object.values(raw).some((v) => v.length > TEXT) || Buffer.byteLength(JSON.stringify(raw)) > MAX_OUTPUTS_BYTES) {
+    return { error: TOOL_TEXTS.outputsTooLarge };
   }
   return { values: Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, storableText(v)])) };
 }
@@ -153,16 +150,10 @@ export function askPayload(args: unknown, start: AskStart): { payload: QuestionP
   return { payload: { ...asked.payload, to: request.to } as QuestionPayload };
 }
 
+/** What the cloud loop answers the model: the texts every harness shares (`TOOL_TEXTS`), and its own. */
 export const TEXTS = {
-  approved: "Approved.",
-  notRunAfterDenial: "Not run: the owner denied the approval you asked for in the same turn.",
-  confirmed: "confirmed",
-  notConfirmed: "The owner did not confirm these values.",
-  denied: "The owner denied this.",
-  notAnswered: "The question was not answered.",
-  tooLargeToAsk: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up.",
+  ...TOOL_TEXTS,
   restarted: "Dispand restarted while this call was running: it may or may not have run. Check before retrying.",
   invalidArgs: (name: string) => `The arguments for ${name} weren't valid JSON: call it again with valid JSON.`,
   unknownTool: (name: string) => `There is no tool named ${name}.`,
-  reminder: (fields: OutputField[]) => `Call submit_outputs with: ${fields.map((f) => f.name).join(", ")}`,
 };

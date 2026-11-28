@@ -15,6 +15,8 @@ import {
   type SessionStart,
   type SessionToolPermissions,
   TEXT,
+  MAX_OUTPUTS_BYTES,
+  TOOL_TEXTS,
 } from "@dispand/runner-protocol";
 import { protocolEvents, protocolString } from "./sanitize.ts";
 import { Told } from "./failure.ts";
@@ -59,9 +61,6 @@ export class BypassRefused extends Told {
  */
 export const MAX_WAITING = 20;
 export const MAX_WAITING_BYTES = 4 * 1024 * 1024;
-
-/** Outputs travel in one event (outputs-accepted, and confirm-outputs): well under the hub's 1 MiB frames. */
-const OUTPUTS_BYTES = 512 * 1024;
 
 /** Questions the session asked the owner and is waiting on, by question id. */
 export function ownerQuestions(emit: (e: HarnessEvent) => void) {
@@ -166,11 +165,11 @@ export function sessionOutcome(
     async submit(given: Record<string, unknown>, signal: AbortSignal): Promise<string> {
       // Only the expected fields, each a string: what isn't there is asked for again.
       const missing = start.expectedOutputs.filter((f) => typeof given[f.name] !== "string").map((f) => f.name);
-      if (missing.length > 0) return `Missing outputs: ${missing.join(", ")}. Call submit_outputs again with every value, as text.`;
+      if (missing.length > 0) return TOOL_TEXTS.missingOutputs(missing);
       const raw = Object.fromEntries(start.expectedOutputs.map((f) => [f.name, given[f.name] as string]));
       // Cutting outputs would change them: the agent shortens them instead.
-      if (Object.values(raw).some((v) => v.length > TEXT) || Buffer.byteLength(JSON.stringify(raw)) > OUTPUTS_BYTES) {
-        return `The outputs are too large: at most ${TEXT} characters each and 512 KiB in all. Shorten them and call submit_outputs again.`;
+      if (Object.values(raw).some((v) => v.length > TEXT) || Buffer.byteLength(JSON.stringify(raw)) > MAX_OUTPUTS_BYTES) {
+        return TOOL_TEXTS.outputsTooLarge;
       }
       const values = Object.fromEntries(Object.entries(raw).map(([k, v]) => [k, protocolString(v, TEXT)]));
       if (start.interactive && start.expectedOutputs.length > 0) {
@@ -179,12 +178,12 @@ export function sessionOutcome(
         if (answer === null) return "Interrupted before the owner confirmed these values.";
         if (answer.kind !== "confirm-outputs" || !answer.confirmed) {
           const feedback = answer?.kind === "confirm-outputs" ? answer.feedback : undefined;
-          return feedback || "The owner did not confirm these values.";
+          return feedback || TOOL_TEXTS.notConfirmed;
         }
       }
       accepted = true;
       io.emit({ type: "outputs-accepted", values });
-      return "confirmed";
+      return TOOL_TEXTS.confirmed;
     },
 
     turnEnded(turn: TurnEnd) {
@@ -203,13 +202,10 @@ export function sessionOutcome(
       if (start.interactive) return io.emit({ type: "turn-end" });
       if (reminded) return io.finish({ type: "error", message: "the agent finished without its outputs" });
       reminded = true;
-      io.say(`Call submit_outputs with: ${start.expectedOutputs.map((f) => f.name).join(", ")}`);
+      io.say(TOOL_TEXTS.reminder(start.expectedOutputs));
     },
   };
 }
-
-/** What a tool called in the same turn as a denied approval request gets back. */
-export const TURN_DENIED = "Not run: the owner denied the approval asked for in the same turn.";
 
 /**
  * Asks the owner to approve `args.message` and gives the tool's answer: "Approved.", or the
@@ -233,8 +229,8 @@ export async function requestApproval(
     signal,
   );
   if (answer?.kind !== "permission") return { ok: false, approved: false, text: "The request was not answered." };
-  if (answer.decision === "deny") return { ok: true, approved: false, text: answer.message ? `Denied: ${answer.message}` : "Denied." };
-  return { ok: true, approved: true, text: "Approved." };
+  if (answer.decision === "deny") return { ok: true, approved: false, text: TOOL_TEXTS.deniedApproval(answer.message) };
+  return { ok: true, approved: true, text: TOOL_TEXTS.approved };
 }
 
 /**
@@ -252,12 +248,12 @@ export async function askTool(
   if ("error" in request) return { ok: false, text: request.error };
   if (request.kind === "choice") {
     const chosen = await askChoices(ask, request.questions, signal, request.to);
-    if (chosen === "indistinct") return { ok: false, text: "These questions are too long to tell apart once shown: shorten them and ask again." };
-    if (chosen === null) return { ok: false, text: "The question was not answered." };
+    if (chosen === "indistinct") return { ok: false, text: TOOL_TEXTS.questionsTooLong };
+    if (chosen === null) return { ok: false, text: TOOL_TEXTS.notAnswered };
     return { ok: true, text: request.questions.map((q, i) => `${q.question}\n${chosen[i]?.join(", ") ?? "(no answer)"}`).join("\n\n") };
   }
   const answer = await ask({ ...request.payload, question: protocolString(request.payload.question, TEXT) }, signal);
-  if (answer?.kind !== "consult") return { ok: false, text: "The ask was not answered." };
+  if (answer?.kind !== "consult") return { ok: false, text: TOOL_TEXTS.notAnswered };
   // The consulted side's words, a reason included: data to this session (`data-block.ts`).
   if (answer.outcome === "failed") return { ok: false, text: consultFailure(answer.text) };
   return { ok: true, text: consultAnswer(request.target.name, answer.text) };

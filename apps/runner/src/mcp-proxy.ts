@@ -9,7 +9,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { Readable, Writable } from "node:stream";
-import { resultRefusal } from "@dispand/runner-protocol";
+import { resultRefusal, TOOL_TEXTS } from "@dispand/runner-protocol";
 import { z } from "zod";
 
 /** What the proxy starts, as `plugin-servers.ts` `Launch`, and in a Job's session the URL its files go to. */
@@ -26,7 +26,6 @@ export type ProxySpec = z.infer<typeof ProxySpec>;
 export const PROXY_SPEC = "DISPAND_PROXY";
 export const PROXY_TOKEN = "DISPAND_JOB_TOKEN";
 
-export const FILES_FAILED = "The call ran, but the files it returned couldn't be kept.";
 const UPLOAD_TIMEOUT_MS = 120_000;
 
 type FileOut = { name: string; base64: string };
@@ -64,12 +63,12 @@ export async function sendFiles(url: string, token: string, files: FileOut[]): P
     });
     if (!res.ok) {
       await res.body?.cancel();
-      return FILES_FAILED;
+      return TOOL_TEXTS.filesNotKept;
     }
     const { text } = (await res.json()) as { text?: unknown };
-    return typeof text === "string" ? text : FILES_FAILED;
+    return typeof text === "string" ? text : TOOL_TEXTS.filesNotKept;
   } catch {
-    return FILES_FAILED;
+    return TOOL_TEXTS.filesNotKept;
   }
 }
 
@@ -88,7 +87,11 @@ export async function withoutFiles(result: Json, keep: (files: FileOut[]) => Pro
   // Counts only: no name, no content (the CLI keeps a server's stderr in its logs).
   console.error(`dispand-runner: mcp-proxy: ${found.length} files in a result, ${refused ? "refused" : "sent to Dispand"}`);
   // Files lost on the way are an error, as on Dispand's own tools endpoint; a refusal is the result's text.
-  return { ...result, content: [...content.filter((_, i) => files[i] === null), { type: "text", text }], ...(text === FILES_FAILED ? { isError: true } : {}) };
+  return {
+    ...result,
+    content: [...content.filter((_, i) => files[i] === null), { type: "text", text }],
+    ...(text === TOOL_TEXTS.filesNotKept ? { isError: true } : {}),
+  };
 }
 
 function parse(line: string): Json | null {

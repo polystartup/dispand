@@ -26,6 +26,7 @@ import {
   REQUEST_APPROVAL,
   REQUEST_APPROVAL_ARGUMENTS,
   REQUEST_APPROVAL_DESCRIPTION,
+  TOOL_TEXTS,
 } from "@dispand/runner-protocol";
 import { ambiguousServer, ambiguousServerError, reservedTaken, reservedTakenError } from "./mcp.ts";
 import { toolPolicy } from "./tool-policy.ts";
@@ -42,7 +43,6 @@ import {
   ownerQuestions,
   requestApproval,
   sessionOutcome,
-  TURN_DENIED,
 } from "./outcome.ts";
 import { fitsWhole } from "./sanitize.ts";
 import { PLANS_DIR } from "./workdir.ts";
@@ -387,7 +387,7 @@ function dispandTools(ctx: {
   const { start, state, outcome, ask } = ctx;
   const submitOutputs = tool(
     "submit_outputs",
-    "Hand your results back to Dispand. Call it once you have every value.",
+    TOOL_TEXTS.submitOutputsDescription,
     Object.fromEntries(start.expectedOutputs.map((f) => [f.name, z.string().describe(f.description ?? f.name)])),
     async (args, extra) => {
       // Withdrawn when the call is cancelled or its turn interrupted: a late answer finds nothing to resolve.
@@ -511,7 +511,7 @@ const NATIVE_DENIAL = "This native CLI rule is denied for this session.";
  */
 export async function toolVerdict(ctx: PermissionContext, name: string, input: Record<string, unknown>, current: string | null): Promise<ToolVerdict> {
   const { start, tools, boundary, native, asks, turnApproved, isRelayed } = ctx;
-  if (name !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { decision: "deny", reason: TURN_DENIED };
+  if (name !== REQUEST_APPROVAL_TOOL && !(await turnApproved())) return { decision: "deny", reason: TOOL_TEXTS.notRunAfterDenial };
   // Read after the wait: a narrowing that came meanwhile counts.
   const policy = tools.check({ name, input });
   if (typeof policy === "object") return { decision: "deny", reason: policy.deny };
@@ -554,9 +554,9 @@ function claudeCanUseTool(ctx: PermissionContext): CanUseTool {
       const questions = (toolInput.questions ?? []) as ChoiceQuestion[];
       const chosen = await askChoices(ask, questions, signal);
       if (chosen === "indistinct") {
-        return { behavior: "deny", message: "These questions are too long to tell apart once shown to the owner: shorten them and ask again." };
+        return { behavior: "deny", message: TOOL_TEXTS.questionsTooLong };
       }
-      if (chosen === null) return { behavior: "deny", message: "The question was not answered." };
+      if (chosen === null) return { behavior: "deny", message: TOOL_TEXTS.notAnswered };
       const answers: Record<string, string> = {};
       questions.forEach((q, i) => {
         const a = chosen[i];
@@ -578,12 +578,12 @@ function claudeCanUseTool(ctx: PermissionContext): CanUseTool {
     if (remembers) payload.remembers = remembers;
     // The owner approves exactly what they see: an input that can't be shown whole isn't asked about.
     if (!fitsWhole({ type: "question", questionId: "", payload })) {
-      return { behavior: "deny", message: "The tool input is too large to show for approval (or holds characters that can't be shown): split it up." };
+      return { behavior: "deny", message: TOOL_TEXTS.tooLargeToAsk };
     }
     const answer = await ask(payload, signal);
     if (remembers) native.remember(remembers, call, answer);
     if (answer?.kind !== "permission" || answer.decision === "deny") {
-      return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || "The owner denied this." };
+      return { behavior: "deny", message: (answer?.kind === "permission" && answer.message) || TOOL_TEXTS.denied };
     }
     if (answer.decision === "allow-always" && canAlwaysAllow) {
       return { behavior: "allow", updatedInput: toolInput, updatedPermissions: updates };
@@ -929,7 +929,7 @@ export function startClaudeSession(start: ClaudeSessionStart, cwd: string, sessi
   // The policy knows Claude's names for actions (`mcpActionName`); the server gets its own.
   const relayed =
     deps.sessionTools?.claude(async (server, tool, input, callSignal) => {
-      if (!(await turnApproved())) return { allow: false, message: TURN_DENIED };
+      if (!(await turnApproved())) return { allow: false, message: TOOL_TEXTS.notRunAfterDenial };
       const signal = callSignal ? AbortSignal.any([callSignal, state.turnAbort.signal]) : state.turnAbort.signal;
       return tools.decide({ name: `mcp__${server}__${mcpActionName(tool, "claude-code")}`, server, input }, ask, signal);
     }) ?? {};
