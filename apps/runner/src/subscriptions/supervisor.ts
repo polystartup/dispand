@@ -252,8 +252,12 @@ export class Subscriptions {
       // Signed out is what a read says; a failed one keeps the last word on this login file. A
       // read the login changed under is reported, never kept.
       if (read) this.lastCodex = read.identity && read.before === read.after ? { stamp: read.after, identity: read.identity } : undefined;
-      const kept = !fresh && this.lastCodex?.stamp === (await this.stamp()) ? this.lastCodex.identity : undefined;
-      const identity = read ? read.identity : kept;
+      let identity = read?.identity;
+      if (!read && !fresh) {
+        const stamp = await this.stamp();
+        const last = this.lastCodex;
+        identity = last?.stamp === stamp ? last.identity : undefined;
+      }
       if (identity) out.push({ harness: "codex", identity, signInNeeded: await this.givenUp() });
     }
     const claude = readClaudeLogin(this.options.configDir);
